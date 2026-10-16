@@ -1,0 +1,21 @@
+[project]
+name = "mcp-pagos"
+version = "0.1.0"
+description = "Servidor MCP de pagos de Caja de Barrio: capa delgada sobre los endpoints de Open Payments del backend."
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp>=1.24,<2",
+    "pydantic-settings>=2.16.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
