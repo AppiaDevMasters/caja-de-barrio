@@ -1,0 +1,31 @@
+---
+description: Marco de trabajo del panel Caja de Barrio — skills, design system y contexto de producto
+alwaysApply: true
+---
+
+# Marco · frontend-caja-de-barrio
+
+Antes de implementar UI o lógica del panel, usar estas bases (no inventar fuera de ellas):
+
+## Skills del proyecto
+
+| Skill | Ruta | Para qué |
+| --- | --- | --- |
+| **caja-de-barrio-panel** | `.cursor/skills/caja-de-barrio-panel/SKILL.md` | Dominio, roles, módulos, principios |
+| **ui-ux-pro-max** | `.cursor/skills/ui-ux-pro-max/SKILL.md` | Design intelligence + generación del Master |
+| **motion** | `.cursor/skills/motion/SKILL.md` | `npm install motion` y animación React |
+
+## Design system (Master)
+
+- Source of Truth: `design-system/MASTER.md`
+- Overrides: `design-system/pages/<pagina>.md` (ganan sobre Master)
+- Patrón igual a rifadas-front: Master + pages; se persiste con ui-ux-pro-max `--design-system --persist`
+
+## Contexto de producto
+
+- Documento base: `z3312/panel-de-control-caja-de-barrio.md`
+
+## Límites actuales
+
+- Solo está definido el marco (skills + Master stub). No instalar dependencias ni construir pantallas hasta que el usuario lo pida.
+- Animación: solo con el paquete `motion` (skill `motion`), no framer-motion legacy.
