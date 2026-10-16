@@ -27,6 +27,26 @@ async def test_verificacion_didit(falso):
     assert falso.ultimo.url.path == "/internal/identidad/verificaciones/did_1"
 
 
+async def test_verificacion_de_solicitud_de_tendero(falso):
+    await m.crear_sesion_facial(motivo="alta_tendero", solicitud_id="sol_1")
+    assert falso.cuerpo == {"motivo": "alta_tendero", "solicitud_id": "sol_1"}
+
+
+async def test_solicitud_de_tendero(falso):
+    await m.solicitar_ser_tendero("573001110020", "CC", "71234567", "Tienda Nueva", "Cra 50 #90-01",
+                                  6.27, -75.55, "$ilp.interledger-test.dev/tienda-cajadebarrio", 500000)
+    assert falso.ultimo.method == "POST" and falso.ultimo.url.path == "/internal/identidad/solicitudes-tendero"
+    assert falso.cuerpo["nombre_tienda"] == "Tienda Nueva" and falso.cuerpo["lat"] == 6.27
+    await m.consultar_solicitud_tendero("573001110020")
+    assert falso.ultimo.method == "GET" and falso.ultimo.url.params["whatsapp"] == "573001110020"
+
+
+async def test_corregir_solicitud_solo_manda_lo_que_cambia(falso):
+    await m.corregir_solicitud_tendero("sol_1", lat=6.28, lon=-75.56)
+    assert falso.ultimo.method == "PUT" and falso.ultimo.url.path == "/internal/identidad/solicitudes-tendero/sol_1"
+    assert falso.cuerpo == {"lat": 6.28, "lon": -75.56}
+
+
 async def test_webhook_didit_se_reenvia_sin_tocar(falso):
     cuerpo = '{"session_id":"x","status":"Approved"}'
     await m.procesar_webhook_didit(cuerpo, "firma123")
