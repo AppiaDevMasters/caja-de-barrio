@@ -4,6 +4,7 @@ import { PERSONAS } from './mock/personas';
 import { TIENDAS } from './mock/tiendas';
 import { RESERVAS } from './mock/reservas';
 import { ALERTAS } from './mock/alertas';
+import { SOLICITUDES, CAMPOS_CORRECCION } from './mock/solicitudes';
 import { AUDITORIA } from './mock/auditoria';
 import { APROBACIONES, TIPO_APROBACION } from './mock/aprobaciones';
 import { CONFIG_INICIAL, CONFIG_LABELS, TOPE_MAX_PERSONA } from './mock/config';
@@ -19,6 +20,12 @@ export const MOTIVO_MIN = 10;
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
+export const NOTIF_SOLICITUD = {
+  aprobada: '¡Tu tienda quedó activa! Ya puedes publicar tu efectivo del día.',
+  rechazada: 'No pudimos aprobar tu solicitud de tienda por ahora.',
+  correccion: 'Necesitamos que corrijas un dato de tu solicitud. Te lo pedimos por aquí.',
+};
+
 const NOTIF = {
   aprobada: 'Tu registro fue aprobado.',
   rechazada: 'Tu registro no pudo ser aprobado.',
@@ -26,13 +33,45 @@ const NOTIF = {
   bloqueada: 'Tu cuenta está en revisión. Te escribiremos pronto.',
 };
 
+const VIGENCIA_IDENTIDAD_MIN = 30;
+
+// v2: de cada reserva sale (a) cuándo escribió «APROBAR» la persona en el chat y
+// (b) hasta cuándo vale su verificación de identidad (Didit, 30 minutos).
+function derivarPersonas(personas, reservas) {
+  return personas.map((p) => {
+    const suyas = reservas.filter((r) => r.persona_id === p.id);
+    const aprobaciones = suyas
+      .map((r) => ({ r, s: r.timeline.find((x) => x.key === 'aprobacion' && x.estado === 'ok') }))
+      .filter((x) => x.s)
+      .map(({ r, s }) => ({
+        reserva_id: r.id,
+        ts: s.ts,
+        texto: 'APROBAR',
+        total_cop: r.total_cop,
+        monto_cop: r.monto_cop,
+      }))
+      .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    const ultima = suyas
+      .map((r) => r.timeline.find((x) => x.key === 'identidad' && x.estado === 'ok')?.ts)
+      .filter(Boolean)
+      .sort((a, b) => new Date(b) - new Date(a))[0];
+    return {
+      ...p,
+      aprobaciones,
+      verificacion_vigente_hasta: ultima ? new Date(new Date(ultima).getTime() + VIGENCIA_IDENTIDAD_MIN * 60000).toISOString() : null,
+    };
+  });
+}
+
 function initialState() {
+  const reservas = clone(RESERVAS);
   return {
     seq: { aud: AUDITORIA.length, ap: APROBACIONES.length },
-    personas: clone(PERSONAS),
+    personas: derivarPersonas(clone(PERSONAS), reservas),
     tiendas: clone(TIENDAS),
-    reservas: clone(RESERVAS),
+    reservas,
     alertas: clone(ALERTAS),
+    solicitudes: clone(SOLICITUDES),
     auditoria: clone(AUDITORIA),
     aprobaciones: clone(APROBACIONES),
     config: clone(CONFIG_INICIAL),
@@ -95,6 +134,13 @@ function addAudit(s, actor, entry) {
   };
 }
 
+const evento = (actor, detalle) => ({
+  ts: new Date().toISOString(),
+  tipo: 'accion_panel',
+  actor: actor.nombre,
+  detalle,
+});
+
 const getPersona = (id) => {
   const p = state.personas.find((x) => x.id === id);
   if (!p) throw new Error('Persona no encontrada.');
@@ -109,6 +155,11 @@ const getReserva = (id) => {
   const r = state.reservas.find((x) => x.id === id);
   if (!r) throw new Error('Reserva no encontrada.');
   return r;
+};
+const getSolicitud = (id) => {
+  const x = state.solicitudes.find((y) => y.id === id);
+  if (!x) throw new Error('Solicitud no encontrada.');
+  return x;
 };
 const getAlerta = (id) => {
   const a = state.alertas.find((x) => x.id === id);
@@ -278,6 +329,10 @@ export const actions = {
       const p = getPersona(id);
       valor = p[campo];
       nombre = p.nombre;
+    } else if (tipo === 'solicitud') {
+      const x = getSolicitud(id);
+      valor = x.solicitante[campo];
+      nombre = x.solicitante.nombre;
     } else {
       const t = getTienda(id);
       valor = t.dueno.cedula;
@@ -377,6 +432,134 @@ export const actions = {
     );
   },
 
+  /* ---------- Solicitudes de tendero ---------- */
+
+  aprobarSolicitud(actor, id, nivel, motivo) {
+    guard(actor, 'solicitud.aprobar');
+    const m = needMotivo(motivo);
+    const x = getSolicitud(id);
+    if (x.estado !== 'en_revision') throw new Error('Solo se aprueban solicitudes en revisión.');
+    if (!['basico', 'comercio'].includes(nivel)) {
+      throw new Error('El alta solo admite nivel básico o comercio. Subir a aliado requiere cuatro ojos desde la ficha de la tienda.');
+    }
+    if (x.checks.some((c) => c.estado === 'error')) {
+      throw new Error('Hay verificaciones en rojo. Pide una corrección o rechaza la solicitud.');
+    }
+    const n = state.tiendas.length + 1;
+    const tiendaId = `t-${String(n).padStart(3, '0')}`;
+    const tienda = {
+      id: tiendaId,
+      nombre: x.tienda.nombre,
+      barrio: x.tienda.barrio,
+      direccion: x.tienda.direccion,
+      lat: x.tienda.lat,
+      lon: x.tienda.lon,
+      wallet: x.wallet.address,
+      nivel,
+      estado: 'activa',
+      suspension_riesgo: false,
+      rut: false,
+      ubicacion_verificada: true,
+      wallet_ok: x.wallet.resuelve,
+      redId: null,
+      tope_retiro_cop: state.config.topes[nivel].retiro,
+      efectivo_publicado_cop: 0,
+      efectivo_reservado_cop: 0,
+      reputacion: 0,
+      entregas_completadas: 0,
+      reclamos: 0,
+      dueno: { nombre: x.solicitante.nombre, cedula: x.solicitante.cedula, verificado: true },
+      creada_en: new Date().toISOString(),
+    };
+    const ts = new Date().toISOString();
+    const next = {
+      ...state,
+      tiendas: [...state.tiendas, tienda],
+      solicitudes: upd(state.solicitudes, id, (y) => ({
+        ...y,
+        estado: 'aprobada',
+        tienda_id: tiendaId,
+        decision: { por: actor.nombre, en: ts, motivo: m },
+        historial: [...y.historial, { ts, actor: actor.nombre, accion: 'aprobada', motivo: m }],
+      })),
+    };
+    commit(
+      addAudit(next, actor, {
+        accion: 'aprobar_solicitud',
+        entidad_tipo: 'solicitud',
+        entidad_id: id,
+        entidad_nombre: `${x.tienda.nombre} (${x.solicitante.nombre})`,
+        antes: 'en_revision',
+        despues: `aprobada · tienda ${tiendaId} activa (${nivel})`,
+        motivo: m,
+      })
+    );
+    return { tienda_id: tiendaId, notificacion: NOTIF_SOLICITUD.aprobada };
+  },
+
+  rechazarSolicitud(actor, id, motivo) {
+    guard(actor, 'solicitud.rechazar');
+    const m = needMotivo(motivo);
+    const x = getSolicitud(id);
+    if (!['en_revision', 'correccion_pedida'].includes(x.estado)) {
+      throw new Error('La solicitud ya fue resuelta o aún está verificándose.');
+    }
+    const ts = new Date().toISOString();
+    const next = {
+      ...state,
+      solicitudes: upd(state.solicitudes, id, (y) => ({
+        ...y,
+        estado: 'rechazada',
+        decision: { por: actor.nombre, en: ts, motivo: m },
+        historial: [...y.historial, { ts, actor: actor.nombre, accion: 'rechazada', motivo: m }],
+      })),
+    };
+    commit(
+      addAudit(next, actor, {
+        accion: 'rechazar_solicitud',
+        entidad_tipo: 'solicitud',
+        entidad_id: id,
+        entidad_nombre: `${x.tienda.nombre} (${x.solicitante.nombre})`,
+        antes: x.estado,
+        despues: 'rechazada',
+        motivo: m,
+      })
+    );
+    return { notificacion: NOTIF_SOLICITUD.rechazada };
+  },
+
+  pedirCorreccionSolicitud(actor, id, campos, motivo) {
+    guard(actor, 'solicitud.correccion');
+    const m = needMotivo(motivo);
+    const x = getSolicitud(id);
+    if (x.estado !== 'en_revision') throw new Error('Solo se pide corrección sobre solicitudes en revisión.');
+    const validos = CAMPOS_CORRECCION.map((c) => c.value);
+    const lista = (campos || []).filter((c) => validos.includes(c));
+    if (!lista.length) throw new Error('Elige al menos un dato para corregir.');
+    const ts = new Date().toISOString();
+    const next = {
+      ...state,
+      solicitudes: upd(state.solicitudes, id, (y) => ({
+        ...y,
+        estado: 'correccion_pedida',
+        correccion: { campos: lista, motivo: m },
+        historial: [...y.historial, { ts, actor: actor.nombre, accion: 'pedir_correccion', motivo: m }],
+      })),
+    };
+    commit(
+      addAudit(next, actor, {
+        accion: 'pedir_correccion',
+        entidad_tipo: 'solicitud',
+        entidad_id: id,
+        entidad_nombre: `${x.tienda.nombre} (${x.solicitante.nombre})`,
+        antes: 'en_revision',
+        despues: `correccion_pedida (${lista.join(', ')})`,
+        motivo: m,
+      })
+    );
+    return { notificacion: NOTIF_SOLICITUD.correccion };
+  },
+
   /* ---------- Reservas y retiros ---------- */
 
   cancelarReserva(actor, id, motivo) {
@@ -393,6 +576,7 @@ export const actions = {
         estado: 'cancelada',
         cancelada_motivo: m,
         timeline: x.timeline.map((s) => (s.estado === 'pendiente' ? { ...s, estado: 'omitido', ref: null } : s)),
+        eventos: [...x.eventos, evento(actor, 'Reserva cancelada desde el panel.')],
       })),
       tiendas: upd(state.tiendas, r.tienda_id, (t) => ({
         ...t,
@@ -431,6 +615,7 @@ export const actions = {
           motivo: m,
           evidencias: [],
         },
+        eventos: [...x.eventos, evento(actor, 'Disputa abierta desde el panel.')],
       })),
     };
     commit(
@@ -459,6 +644,7 @@ export const actions = {
           ...x.disputa,
           evidencias: [...x.disputa.evidencias, { ts: new Date().toISOString(), autor: actor.nombre, texto: m }],
         },
+        eventos: [...x.eventos, evento(actor, 'Evidencia adjuntada a la disputa.')],
       })),
     };
     commit(
@@ -472,6 +658,47 @@ export const actions = {
         motivo: m,
       })
     );
+  },
+
+  resolverDisputa(actor, id, resolucion, motivo) {
+    guard(actor, 'retiro.resolver_disputa');
+    const m = needMotivo(motivo);
+    const r = getReserva(id);
+    if (r.estado !== 'en_disputa' || r.disputa?.estado !== 'abierta') {
+      throw new Error('La reserva no tiene una disputa abierta.');
+    }
+    if (!['cliente', 'tendero'].includes(resolucion)) throw new Error('Resolución inválida.');
+    // Solo cambia el estado: no mueve dinero.
+    const nuevoEstado = resolucion === 'tendero' ? 'entregada' : 'cancelada';
+    const next = {
+      ...state,
+      reservas: upd(state.reservas, id, (x) => ({
+        ...x,
+        estado: nuevoEstado,
+        cancelada_motivo: resolucion === 'cliente' ? `Disputa resuelta a favor del cliente: ${m}` : x.cancelada_motivo,
+        disputa: {
+          ...x.disputa,
+          estado: 'resuelta',
+          resolucion,
+          resolucion_motivo: m,
+          resuelta_por: actor.nombre,
+          resuelta_en: new Date().toISOString(),
+        },
+        eventos: [...x.eventos, evento(actor, `Disputa resuelta a favor del ${resolucion}.`)],
+      })),
+    };
+    commit(
+      addAudit(next, actor, {
+        accion: 'resolver_disputa',
+        entidad_tipo: 'reserva',
+        entidad_id: id,
+        entidad_nombre: `Reserva ${id}`,
+        antes: 'en_disputa',
+        despues: `${nuevoEstado} (a favor del ${resolucion})`,
+        motivo: m,
+      })
+    );
+    return { resolucion };
   },
 
   /* ---------- Alertas ---------- */

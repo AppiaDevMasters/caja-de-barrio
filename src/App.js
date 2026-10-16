@@ -13,14 +13,17 @@ import Tiendas from './pages/Tiendas';
 import TiendaDetail from './pages/TiendaDetail';
 import Retiros from './pages/Retiros';
 import RetiroDetail from './pages/RetiroDetail';
+import Solicitudes from './pages/Solicitudes';
+import SolicitudDetail from './pages/SolicitudDetail';
 import Alertas from './pages/Alertas';
 import Auditoria from './pages/Auditoria';
 import Configuracion from './pages/Configuracion';
 import MapaStub from './pages/MapaStub';
 
 function RequireAuth() {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const location = useLocation();
+  if (!ready) return null;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <Shell />;
 }
@@ -43,6 +46,10 @@ export default function App() {
                 <Route element={<Guard route="personas" />}>
                   <Route path="personas" element={<Personas />} />
                   <Route path="personas/:id" element={<PersonaDetail />} />
+                </Route>
+                <Route element={<Guard route="solicitudes" />}>
+                  <Route path="solicitudes" element={<Solicitudes />} />
+                  <Route path="solicitudes/:id" element={<SolicitudDetail />} />
                 </Route>
                 <Route element={<Guard route="tiendas" />}>
                   <Route path="tiendas" element={<Tiendas />} />

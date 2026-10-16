@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { OctagonAlert, Power, RotateCcw, Save } from 'lucide-react';
-import { admin } from '../api/admin';
+import { admin } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { CONFIG_LABELS } from '../data/mock/config';
 import { cop, dateTime } from '../utils/format';

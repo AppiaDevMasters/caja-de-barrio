@@ -1,6 +1,6 @@
 import { useSearchParams } from 'react-router-dom';
 import { Lock } from 'lucide-react';
-import { selectAuditoria } from '../api/admin';
+import { selectAuditoria } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { ROLE_LABEL } from '../auth/permissions';
 import { dateTime } from '../utils/format';
@@ -10,6 +10,7 @@ import { Notice, PageHeader, SearchInput, Select, useSimulatedLoad } from '../co
 const ENTIDADES = {
   persona: 'Persona',
   tienda: 'Tienda',
+  solicitud: 'Solicitud de tendero',
   reserva: 'Reserva',
   alerta: 'Alerta',
   configuracion: 'Configuración',

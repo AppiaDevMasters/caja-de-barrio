@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowUpCircle, Ban, Check, ExternalLink, MapPin, SlidersHorizontal, Star } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin, efectivoLibre } from '../api/admin';
+import { admin, efectivoLibre } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { cop, dateTime, maskCedula, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';

@@ -2,7 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronRight, Download, Star } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useStoreState } from '../data/mockStore';
-import { efectivoLibre, selectTiendas, tiendasVisibles } from '../api/admin';
+import { efectivoLibre, selectTiendas, tiendasVisibles } from '../api';
 import { cop, downloadCSV } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -114,7 +114,6 @@ export default function Tiendas() {
             { value: 'todos', label: 'Todos los estados' },
             { value: 'activa', label: 'Activa' },
             { value: 'suspendida', label: 'Suspendida' },
-            { value: 'pendiente', label: 'En alta' },
           ]}
         />
         <Select

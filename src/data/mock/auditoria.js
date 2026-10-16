@@ -17,7 +17,6 @@ const e = (n, min, actor, rol, accion, tipo, id, nombre, antes, despues, motivo,
 
 // Más reciente primero. Solo lectura: no existe API para editar ni borrar.
 export const AUDITORIA = [
-  e(12, 95, 'soporte', 'soporte', 'abrir_disputa', 'reserva', 'R-1060', 'Reserva R-1060', 'entregada', 'en_disputa', 'La persona reclama que recibió $70.000 en lugar de $90.000.', '10.20.4.52'),
   e(11, 140, 'soporte', 'soporte', 'adjuntar_evidencia', 'reserva', 'R-1060', 'Reserva R-1060', '—', 'Nota de llamada con la tienda', 'Llamada con la tienda: la tendera asegura haber contado los billetes.', '10.20.4.52'),
   e(10, 300, 'cumplimiento', 'cumplimiento', 'solicitar_desbloqueo', 'persona', 'p-008', 'Hernán Cuartas Mejía', 'bloqueada', 'pendiente de segunda aprobación', 'Se verificó el origen de los fondos con el titular; se solicita desbloqueo.', '10.20.4.31'),
   e(9, 1400, 'cumplimiento', 'cumplimiento', 'bloquear', 'persona', 'p-008', 'Hernán Cuartas Mejía', 'aprobada', 'bloqueada', 'Retiros fraccionados repetidos que rozan el tope. Se bloquea mientras se revisa el caso.', '10.20.4.31'),

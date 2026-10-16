@@ -1,14 +1,25 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { FilePlus2, Gavel, ShieldCheck, XCircle } from 'lucide-react';
+import { FilePlus2, Gavel, Scale, ShieldCheck, XCircle } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin } from '../api/admin';
+import { admin } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { cop, dateTime, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';
 import StatusBadge from '../components/ui/StatusBadge';
 import { BackLink, Card, DefList, EmptyState, Notice, Timeline } from '../components/ui/primitives';
+
+const EVENTO_LABEL = {
+  aviso_tendero: 'Aviso al tendero',
+  aviso_pago: 'Aviso de pago',
+  entrega_tendero: 'Entrega del tendero',
+  disputa_abierta: 'Disputa del cliente',
+  vencimiento: 'Vencimiento',
+  accion_panel: 'Acción del panel',
+};
+
+const pctFmt = (n) => `${(n * 100).toString().replace('.', ',')} %`;
 
 export default function RetiroDetail() {
   const { id } = useParams();
@@ -28,9 +39,13 @@ export default function RetiroDetail() {
 
   const persona = state.personas.find((p) => p.id === r.persona_id);
   const tienda = state.tiendas.find((t) => t.id === r.tienda_id);
+  const identidad = r.timeline.find((s) => s.key === 'identidad');
   const puedeCancelar = r.estado === 'reservada' && can(user.rol, 'reserva.cancelar');
   const puedeDisputa = ['pagada', 'entregada', 'vencida'].includes(r.estado) && can(user.rol, 'retiro.disputa');
   const puedeEvidencia = r.estado === 'en_disputa' && can(user.rol, 'retiro.disputa');
+  const puedeResolver =
+    r.estado === 'en_disputa' && r.disputa?.estado === 'abierta' && can(user.rol, 'retiro.resolver_disputa');
+  const conCobros = r.total_cop > 0;
 
   return (
     <>
@@ -82,7 +97,7 @@ export default function RetiroDetail() {
           )}
           {puedeEvidencia && (
             <button
-              className="btn btn--primary"
+              className="btn"
               onClick={() =>
                 setDlg({
                   title: 'Adjuntar evidencia',
@@ -98,13 +113,44 @@ export default function RetiroDetail() {
               <FilePlus2 size={16} /> Adjuntar evidencia
             </button>
           )}
+          {puedeResolver && (
+            <button
+              className="btn btn--primary"
+              onClick={() =>
+                setDlg({
+                  title: 'Resolver disputa',
+                  description:
+                    'Solo cambia el estado y deja auditoría. No mueve dinero: cualquier ajuste se hace fuera del panel.',
+                  confirmLabel: 'Resolver disputa',
+                  motivoLabel: 'Motivo de la resolución (obligatorio)',
+                  successMsg: (res) =>
+                    `Disputa resuelta a favor del ${res.resolucion === 'cliente' ? 'cliente' : 'tendero'}.`,
+                  fields: [
+                    {
+                      name: 'resolucion',
+                      label: 'Resolución',
+                      type: 'select',
+                      defaultValue: 'tendero',
+                      options: [
+                        { value: 'tendero', label: 'A favor del tendero (entrega válida)' },
+                        { value: 'cliente', label: 'A favor del cliente (no recibió)' },
+                      ],
+                    },
+                  ],
+                  run: ({ motivo, values }) => admin.resolverDisputa(r.id, values.resolucion, motivo),
+                })
+              }
+            >
+              <Scale size={16} /> Resolver disputa
+            </button>
+          )}
         </div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
         <Notice icon={ShieldCheck}>
-          Este panel no puede marcar pagos ni entregar billetes. Esas reglas viven en los servidores MCP: la entrega solo
-          ocurre con el pago completado y el face match aprobado.
+          Este panel no puede marcar pagos ni entregar billetes. Esas reglas viven en el backend: la entrega se cierra solo con
+          el pago completado y la doble confirmación del tendero y del cliente.
         </Notice>
       </div>
 
@@ -122,13 +168,48 @@ export default function RetiroDetail() {
             <Timeline steps={r.timeline} />
           </Card>
 
+          <Card title="Actividad" hint="Avisos del agente, acciones del panel y vencimientos">
+            {r.eventos.length === 0 ? (
+              <p className="muted">Sin eventos registrados.</p>
+            ) : (
+              <ul className="list">
+                {r.eventos.map((e, i) => (
+                  <li key={i} style={{ alignItems: 'flex-start' }}>
+                    <div className="grow">
+                      <span className="title" style={{ fontSize: 14 }}>
+                        {EVENTO_LABEL[e.tipo] || e.tipo}
+                      </span>
+                      <span className="sub">{e.detalle}</span>
+                      <span className="sub" style={{ display: 'block' }}>
+                        {e.actor} · {dateTime(e.ts)}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
           {r.disputa && (
-            <Card title="Disputa" actions={<span className="badge badge--warning">{r.disputa.estado === 'abierta' ? 'Abierta' : r.disputa.estado}</span>}>
+            <Card
+              title="Disputa"
+              actions={
+                r.disputa.estado === 'abierta' ? (
+                  <span className="badge badge--warning">Abierta</span>
+                ) : (
+                  <span className="badge badge--success">
+                    Resuelta a favor del {r.disputa.resolucion === 'cliente' ? 'cliente' : 'tendero'}
+                  </span>
+                )
+              }
+            >
               <DefList
                 items={[
                   ['Abierta por', r.disputa.abierta_por],
                   ['Fecha', dateTime(r.disputa.abierta_en)],
                   ['Motivo', r.disputa.motivo],
+                  r.disputa.estado === 'resuelta' && ['Resuelta por', `${r.disputa.resuelta_por} · ${dateTime(r.disputa.resuelta_en)}`],
+                  r.disputa.estado === 'resuelta' && ['Motivo de la resolución', r.disputa.resolucion_motivo],
                 ]}
               />
               <h3 style={{ fontSize: 14, margin: '16px 0 8px' }}>Evidencia ({r.disputa.evidencias.length})</h3>
@@ -161,11 +242,11 @@ export default function RetiroDetail() {
                 ['Monto', <span key="m" className="mono">{cop(r.monto_cop)}</span>],
                 ['Riesgo', r.riesgo_ok ? <span key="r" className="badge badge--success">Permitido</span> : <span key="r" className="badge badge--neutral">Pendiente</span>],
                 [
-                  'Face match',
-                  r.timeline.find((s) => s.key === 'facematch')?.estado === 'fallido' ? (
-                    <span key="f" className="badge badge--danger">No coincide</span>
+                  'Identidad (Didit)',
+                  identidad?.estado === 'fallido' ? (
+                    <span key="f" className="badge badge--danger">Rechazada</span>
                   ) : r.face_match_ok ? (
-                    <span key="f" className="badge badge--success">Aprobado</span>
+                    <span key="f" className="badge badge--success">Verificada</span>
                   ) : (
                     <span key="f" className="badge badge--neutral">Pendiente</span>
                   ),
@@ -177,14 +258,29 @@ export default function RetiroDetail() {
             />
           </Card>
 
+          <Card title="Comisiones" hint="Dos cobros separados">
+            {conCobros ? (
+              <DefList
+                items={[
+                  ['Efectivo libre al reservar', <span key="l" className="mono">{cop(r.efectivo_libre_al_reservar_cop)}</span>],
+                  ['Tasa del tendero', <span key="t" className="mono">{pctFmt(r.tasa_tendero)}</span>],
+                  ['Comisión tendero', <span key="ct" className="mono">{cop(r.comision_tendero_cop)}</span>],
+                  ['1 % Caja de Barrio', <span key="cp" className="mono">{cop(r.comision_plataforma_cop)}</span>],
+                  ['Total a debitar', <strong key="tot" className="mono">{cop(r.total_cop)}</strong>],
+                ]}
+              />
+            ) : (
+              <p className="muted">No se crearon cobros: el retiro se detuvo antes de reservar efectivo.</p>
+            )}
+          </Card>
+
           {r.remesa && (
-            <Card title="Remesa en dólares" hint="Quote con conversión a COP">
+            <Card title="Remesa en dólares" hint="Cotización con conversión a COP">
               <DefList
                 items={[
                   ['Quien paga', r.remesa.origen],
                   ['Débito', <span key="d" className="mono">USD {r.remesa.usd.toFixed(2)}</span>],
                   ['Tasa', <span key="t" className="mono">{r.remesa.tasa.toLocaleString('es-CO')} COP/USD</span>],
-                  ['Comisión', <span key="c" className="mono">USD {r.remesa.comision.toFixed(2)}</span>],
                   ['Recibe en tienda', <span key="r" className="mono">{cop(r.monto_cop)}</span>],
                 ]}
               />

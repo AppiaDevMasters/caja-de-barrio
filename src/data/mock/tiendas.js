@@ -1,6 +1,6 @@
 import { daysAgo } from './time';
 
-// 5 tiendas semilla en Aranjuez y alrededores (Medellín, cerca de Ruta N) + 1 en alta.
+// 5 tiendas semilla en Aranjuez y alrededores (Medellín, cerca de Ruta N). Las altas viven en /solicitudes.
 const tienda = (t) => ({
   suspension_riesgo: false,
   rut: false,
@@ -112,27 +112,6 @@ export const TIENDAS = [
     reclamos: 4,
     dueno: { nombre: 'Gloria Patricia Ríos', cedula: '39.447.801', verificado: true },
     creada_en: daysAgo(27),
-  }),
-  tienda({
-    id: 't-006',
-    nombre: 'Minimercado San Pedro',
-    barrio: 'Aranjuez',
-    direccion: 'Cll 91 #53-40, Aranjuez',
-    lat: 6.2742,
-    lon: -75.5619,
-    wallet: '$ilp.interledger-test.dev/sanpedro-demo',
-    nivel: 'basico',
-    estado: 'pendiente',
-    ubicacion_verificada: false,
-    wallet_ok: false,
-    tope_retiro_cop: 200000,
-    efectivo_publicado_cop: 0,
-    efectivo_reservado_cop: 0,
-    reputacion: 0,
-    entregas_completadas: 0,
-    reclamos: 0,
-    dueno: { nombre: 'Pedro Nel Ruiz', cedula: '15.330.972', verificado: false },
-    creada_en: daysAgo(1),
   }),
 ];
 

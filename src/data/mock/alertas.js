@@ -6,11 +6,37 @@ export const REGLAS_ALERTA = {
   cerca_tope: 'Monto cerca del tope',
   lista_restrictiva: 'Coincidencia en listas',
   reclamos_tienda: 'Reclamos repetidos contra tienda',
+  entrega_no_recibida: 'Entrega no recibida (disputa del cliente)',
+  verificacion_facial_fallida: 'Verificación facial fallida al retirar',
 };
 
 const alerta = (a) => ({ uiaf: false, resolucion: null, ...a });
 
 export const ALERTAS = [
+  alerta({
+    id: 'AL-0033',
+    regla: 'verificacion_facial_fallida',
+    persona_id: 'p-001',
+    tienda_id: 't-002',
+    reserva_id: 'R-1054',
+    detalle:
+      'Didit rechazó la cara al iniciar el retiro R-1054 (score 0,21). Posible suplantación: no se reservó efectivo ni se creó ningún cobro.',
+    severidad: 'media',
+    creada_en: minutesAgo(80),
+    estado: 'abierta',
+  }),
+  alerta({
+    id: 'AL-0032',
+    regla: 'entrega_no_recibida',
+    persona_id: 'p-010',
+    tienda_id: 't-002',
+    reserva_id: 'R-1060',
+    detalle:
+      'La persona dijo «no» en la confirmación de recibido: reclama $70.000 de $90.000 en R-1060. La reserva pasó a en_disputa y espera resolución.',
+    severidad: 'alta',
+    creada_en: minutesAgo(150),
+    estado: 'abierta',
+  }),
   alerta({
     id: 'AL-0031',
     regla: 'pitufeo',

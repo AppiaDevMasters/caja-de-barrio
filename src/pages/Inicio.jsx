@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { canAccess, ROLE_LABEL } from '../auth/permissions';
 import { useStoreState } from '../data/mockStore';
-import { alertaPendiente, efectivoLibre, selectResumen, tiendasVisibles } from '../api/admin';
+import { alertaPendiente, efectivoLibre, selectResumen, tiendasVisibles } from '../api';
 import { REGLAS_ALERTA } from '../data/mock/alertas';
 import { cop, relative } from '../utils/format';
 import KpiCard from '../components/ui/KpiCard';

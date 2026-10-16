@@ -25,6 +25,18 @@ const MAP = {
     cancelada: ['Cancelada', 'neutral'],
     en_disputa: ['En disputa', 'warning'],
   },
+  solicitud: {
+    verificando: ['Verificando', 'info'],
+    en_revision: ['En revisión', 'warning'],
+    correccion_pedida: ['Corrección pedida', 'neutral'],
+    aprobada: ['Aprobada', 'success'],
+    rechazada: ['Rechazada', 'danger'],
+  },
+  check: {
+    ok: ['OK', 'success'],
+    alerta: ['Alerta', 'warning'],
+    error: ['Error', 'danger'],
+  },
   alerta: {
     abierta: ['Abierta', 'danger'],
     escalada: ['Escalada', 'warning'],

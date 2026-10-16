@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   Banknote,
+  ClipboardCheck,
   LayoutDashboard,
   Map,
   ScrollText,
@@ -13,11 +14,12 @@ import {
 import { useAuth } from '../../auth/AuthContext';
 import { canAccess } from '../../auth/permissions';
 import { useStoreState } from '../../data/mockStore';
-import { alertaPendiente } from '../../api/admin';
+import { alertaPendiente, solicitudPendiente } from '../../api';
 
 const NAV = [
   { to: '/', route: 'inicio', label: 'Inicio', icon: LayoutDashboard, end: true },
   { to: '/personas', route: 'personas', label: 'Personas', icon: Users, badge: 'personas' },
+  { to: '/solicitudes', route: 'solicitudes', label: 'Solicitudes', icon: ClipboardCheck, badge: 'solicitudes' },
   { to: '/tiendas', route: 'tiendas', label: 'Tiendas', icon: Store },
   { to: '/retiros', route: 'retiros', label: 'Reservas y retiros', icon: Banknote },
   { to: '/alertas', route: 'alertas', label: 'Alertas de riesgo', icon: ShieldAlert, badge: 'alertas' },
@@ -32,6 +34,7 @@ export default function Sidebar({ open, onNavigate }) {
   const counts = {
     personas: state.personas.filter((p) => p.estado_registro === 'revision_manual').length,
     alertas: state.alertas.filter(alertaPendiente).length,
+    solicitudes: state.solicitudes.filter(solicitudPendiente).length,
   };
 
   return (

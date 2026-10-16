@@ -46,6 +46,13 @@ export const admin = {
   cancelarReserva: (id, motivo) => call(() => actions.cancelarReserva(actor, id, motivo)),
   abrirDisputa: (id, motivo) => call(() => actions.abrirDisputa(actor, id, motivo)),
   adjuntarEvidencia: (id, texto) => call(() => actions.adjuntarEvidencia(actor, id, texto)),
+  // POST /admin/retiros/{id}/resolver-disputa  (solo cambia estado; no mueve dinero)
+  resolverDisputa: (id, resolucion, motivo) => call(() => actions.resolverDisputa(actor, id, resolucion, motivo)),
+
+  // POST /admin/solicitudes-tendero/{id}/aprobar|rechazar|pedir-correccion
+  aprobarSolicitud: (id, nivel, motivo) => call(() => actions.aprobarSolicitud(actor, id, nivel, motivo)),
+  rechazarSolicitud: (id, motivo) => call(() => actions.rechazarSolicitud(actor, id, motivo)),
+  pedirCorreccionSolicitud: (id, campos, motivo) => call(() => actions.pedirCorreccionSolicitud(actor, id, campos, motivo)),
 
   // POST /admin/alertas/{id}/resolver
   resolverAlerta: (id, accion, motivo) => call(() => actions.resolverAlerta(actor, id, accion, motivo)),
@@ -97,6 +104,7 @@ export function selectResumen(state, user) {
       { key: 'retiros', label: 'Retiros completados', value: entregadas.length, icon: 'check', to: '/retiros?estado=entregada', hint: 'Hoy' },
       { key: 'monto', label: 'Monto entregado', value: entregadas.reduce((a, r) => a + r.monto_cop, 0), format: 'cop', icon: 'wallet', to: '/retiros?estado=entregada', hint: 'Hoy' },
       { key: 'pendientes', label: 'Registros por revisar', value: state.personas.filter((p) => p.estado_registro === 'revision_manual').length, icon: 'users', to: '/personas?estado=revision_manual', hint: 'Cola de revisión manual' },
+      { key: 'solicitudes', label: 'Solicitudes de tendero', value: state.solicitudes.filter(solicitudPendiente).length, icon: 'clipboard', to: '/solicitudes', hint: 'En revisión', role: 'solicitudes' },
       { key: 'alertas', label: 'Alertas abiertas', value: state.alertas.filter(alertaPendiente).length, icon: 'alert', tone: 'danger', to: '/alertas?estado=pendientes', hint: 'Abiertas y escaladas', role: 'alertas' },
       { key: 'tiendas', label: 'Tiendas activas', value: activas.length, icon: 'store', to: '/tiendas?estado=activa', hint: `de ${state.tiendas.length} registradas` },
       { key: 'efectivo', label: 'Efectivo disponible publicado', value: activas.reduce((a, t) => a + efectivoLibre(t), 0), format: 'cop', icon: 'banknote', to: '/tiendas?estado=activa', hint: 'Publicado menos reservado' },
@@ -155,6 +163,24 @@ export function selectReservas(state, { estado, q } = {}) {
     });
   }
   return rows;
+}
+
+// GET /admin/solicitudes-tendero
+export const solicitudPendiente = (x) => x.estado === 'en_revision';
+
+export function semaforo(x) {
+  return x.checks.reduce((acc, c) => ({ ...acc, [c.estado]: (acc[c.estado] || 0) + 1 }), { ok: 0, alerta: 0, error: 0 });
+}
+
+export function selectSolicitudes(state, { estado = 'en_revision', q } = {}) {
+  let rows = [...state.solicitudes];
+  if (estado && estado !== 'todas') rows = rows.filter((x) => x.estado === estado);
+  if (q) {
+    const n = norm(q);
+    rows = rows.filter((x) => norm(`${x.solicitante.nombre} ${x.tienda.nombre} ${x.tienda.barrio} ${x.id}`).includes(n));
+  }
+  // Cola: de la más antigua a la más reciente.
+  return rows.sort((a, b) => new Date(a.creada_en) - new Date(b.creada_en));
 }
 
 // GET /admin/alertas

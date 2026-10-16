@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useStoreState } from '../data/mockStore';
-import { selectReservas } from '../api/admin';
+import { selectReservas } from '../api';
 import { cop, relative } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -45,16 +45,17 @@ export default function Retiros() {
     { key: 'persona', header: 'Persona', render: (r) => persona(r.persona_id)?.nombre },
     { key: 'tienda', header: 'Tienda', render: (r) => tienda(r.tienda_id)?.nombre },
     { key: 'monto', header: 'Monto', className: 'num', render: (r) => cop(r.monto_cop) },
+    { key: 'com_tendero', header: 'Comisión tendero', className: 'num', render: (r) => (r.total_cop ? cop(r.comision_tendero_cop) : '—') },
+    { key: 'com_caja', header: '1 % Caja de Barrio', className: 'num', render: (r) => (r.total_cop ? cop(r.comision_plataforma_cop) : '—') },
     { key: 'estado', header: 'Estado', render: (r) => <StatusBadge kind="reserva" value={r.estado} /> },
-    { key: 'riesgo', header: 'Riesgo', render: (r) => bool(r.riesgo_ok, 'Permitido', 'Pendiente') },
     {
-      key: 'face',
-      header: 'Face match',
+      key: 'identidad',
+      header: 'Identidad',
       render: (r) =>
-        r.timeline.find((s) => s.key === 'facematch')?.estado === 'fallido' ? (
-          <span className="badge badge--danger">No coincide</span>
+        r.timeline.find((s) => s.key === 'identidad')?.estado === 'fallido' ? (
+          <span className="badge badge--danger">Rechazada</span>
         ) : (
-          bool(r.face_match_ok, 'Aprobado', 'Pendiente')
+          bool(r.face_match_ok, 'Verificada', 'Pendiente')
         ),
     },
     { key: 'creada', header: 'Creada', render: (r) => relative(r.creada_en) },

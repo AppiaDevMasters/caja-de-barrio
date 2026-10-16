@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useStoreState } from '../data/mockStore';
-import { countPersonasPorEstado, selectPersonas } from '../api/admin';
+import { countPersonasPorEstado, selectPersonas } from '../api';
 import { maskCedula, relative } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';

@@ -2,17 +2,32 @@ import { daysAgo, minutesAgo } from './time';
 
 // Datos ficticios. Cédulas y teléfonos completos solo existen aquí para simular
 // la acción auditable "revelar"; la UI los muestra enmascarados por defecto.
-const persona = (p) => ({
-  tope_retiro_cop: 300000,
-  nivel: 'Nivel 1',
-  telefono_unico: true,
-  listas: { restrictivas: false, pep: false, detalle: null },
-  verifik: { valida: true, nombre_coincide: true, nombre_registrado: null },
-  didit: { liveness: 'aprobada', score: 0.94 },
-  motivo_revision: null,
-  historial: [],
-  ...p,
-});
+export const POLITICAS_VERSION = 'v1-2026-10';
+
+const CUPO_POR_NIVEL = { 'Nivel 1': 600000, 'Nivel 2': 1000000 };
+
+// v2: la persona acepta políticas al registrarse y aprueba un cupo una sola vez en su wallet.
+const persona = (p) => {
+  const base = {
+    tope_retiro_cop: 300000,
+    nivel: 'Nivel 1',
+    telefono_unico: true,
+    listas: { restrictivas: false, pep: false, detalle: null },
+    verifik: { valida: true, nombre_coincide: true, nombre_registrado: null },
+    didit: { liveness: 'aprobada', score: 0.94 },
+    motivo_revision: null,
+    historial: [],
+    politicas_version: POLITICAS_VERSION,
+    ...p,
+  };
+  const conCupo = ['aprobada', 'bloqueada'].includes(base.estado_registro);
+  return {
+    ...base,
+    politicas_aceptadas_en: base.politicas_version ? base.politicas_aceptadas_en ?? base.creada_en : null,
+    cupo_aprobado_cop: base.cupo_aprobado_cop ?? (conCupo ? CUPO_POR_NIVEL[base.nivel] : null),
+    cupo_aprobado_en: conCupo ? base.cupo_aprobado_en ?? base.verificada_en ?? base.creada_en : null,
+  };
+};
 
 export const PERSONAS = [
   persona({
@@ -117,6 +132,7 @@ export const PERSONAS = [
     cedula: '1.040.221.903',
     whatsapp: '+57 322 555 2201',
     wallet: null,
+    politicas_version: null,
     estado_registro: 'pendiente',
     creada_en: minutesAgo(35),
     didit_ref: null,

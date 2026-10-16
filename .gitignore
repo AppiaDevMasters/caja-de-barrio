@@ -6,7 +6,6 @@
 # Entorno y secretos
 .env
 .env.*
-!.env.example
 credentials.txt
 *.pem
 *.key

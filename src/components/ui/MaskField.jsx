@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { admin } from '../../api/admin';
+import { admin } from '../../api';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
 import { useToast } from './Toast';
@@ -21,15 +21,18 @@ export default function MaskField({ masked, entity, entityId, field }) {
     return () => clearTimeout(t);
   }, [full]);
 
-  const toggle = () => {
-    if (full) return setFull(null);
+  const toggle = async () => {
+    if (full) {
+      setFull(null);
+      return;
+    }
     try {
-      setFull(admin.revelarDato(entity, entityId, field));
+      // Mock: síncrono. Real: POST /admin/{entidad}/{id}/revelar (queda en auditoría).
+      setFull(await admin.revelarDato(entity, entityId, field));
       toast('Dato revelado y registrado en auditoría.', { detail: 'Se ocultará de nuevo en 20 segundos.' });
     } catch (e) {
       toast(e.message, { tone: 'error' });
     }
-    return undefined;
   };
 
   return (

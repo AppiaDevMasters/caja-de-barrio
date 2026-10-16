@@ -3,7 +3,7 @@ import { Bell, LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import { can, ROLE_LABEL } from '../../auth/permissions';
 import { useStoreState } from '../../data/mockStore';
-import { selectAprobacionesPendientes } from '../../api/admin';
+import { selectAprobacionesPendientes } from '../../api';
 import { initials } from '../../utils/format';
 import ApprovalsDrawer from './ApprovalsDrawer';
 

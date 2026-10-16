@@ -95,8 +95,27 @@ function DialogBody({ config, onClose }) {
           {config.preview}
           {(config.fields || []).map((f, i) => (
             <div className="field" key={f.name}>
-              <label htmlFor={`f-${f.name}`}>{f.label}</label>
-              {f.type === 'select' ? (
+              <label id={`f-${f.name}`} htmlFor={`f-${f.name}`}>{f.label}</label>
+              {f.type === 'checkboxes' ? (
+                <div role="group" aria-labelledby={`f-${f.name}`} style={{ display: 'grid', gap: 8 }}>
+                  {f.options.map((o) => (
+                    <label key={o.value} style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={(values[f.name] || []).includes(o.value)}
+                        onChange={(e) => {
+                          const cur = values[f.name] || [];
+                          setValues({
+                            ...values,
+                            [f.name]: e.target.checked ? [...cur, o.value] : cur.filter((v) => v !== o.value),
+                          });
+                        }}
+                      />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+              ) : f.type === 'select' ? (
                 <select
                   id={`f-${f.name}`}
                   className="select"

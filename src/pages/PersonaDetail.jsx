@@ -3,10 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { Ban, Check, ExternalLink, LockOpen, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin } from '../api/admin';
+import { admin } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { TOPE_MAX_PERSONA } from '../data/mock/config';
 import { REGLAS_ALERTA } from '../data/mock/alertas';
+import { POLITICAS_VERSION } from '../data/mock/personas';
 import { cop, dateTime, maskCedula, maskPhone, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';
 import MaskField from '../components/ui/MaskField';
@@ -47,6 +48,7 @@ export default function PersonaDetail() {
   );
   const compartido = state.personas.filter((x) => x.id !== p.id && x.dispositivo === p.dispositivo);
 
+  const vigente = p.verificacion_vigente_hasta && new Date(p.verificacion_vigente_hasta) > new Date();
   const abrir = (cfg) => setDlg(cfg);
 
   const acciones = [];
@@ -252,6 +254,72 @@ export default function PersonaDetail() {
                 p.listas.detalle && ['Detalle', p.listas.detalle],
               ]}
             />
+          </Card>
+
+          <Card title="Políticas y cupo" hint="Se aceptan al registrarse · el cupo se aprueba una sola vez en la wallet">
+            <DefList
+              items={[
+                [
+                  'Políticas aceptadas',
+                  p.politicas_version ? (
+                    <span key="pv">
+                      <span className="mono">{p.politicas_version}</span>{' '}
+                      {p.politicas_version === POLITICAS_VERSION ? (
+                        <span className="badge badge--success">Vigente</span>
+                      ) : (
+                        <span className="badge badge--warning">Desactualizada</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="badge badge--neutral">Sin aceptar</span>
+                  ),
+                ],
+                ['Aceptadas el', p.politicas_aceptadas_en ? dateTime(p.politicas_aceptadas_en) : '—'],
+                [
+                  'Cupo aprobado en la wallet',
+                  p.cupo_aprobado_cop ? (
+                    <span key="cu" className="mono">
+                      {cop(p.cupo_aprobado_cop)} · {dateTime(p.cupo_aprobado_en)}
+                    </span>
+                  ) : (
+                    <span className="muted">Aún sin aprobar</span>
+                  ),
+                ],
+                [
+                  'Verificación de identidad',
+                  vigente ? (
+                    <span key="vv" className="badge badge--success">Vigente hasta {dateTime(p.verificacion_vigente_hasta)}</span>
+                  ) : p.verificacion_vigente_hasta ? (
+                    <span key="vv" className="badge badge--neutral">Vencida · {dateTime(p.verificacion_vigente_hasta)}</span>
+                  ) : (
+                    <span key="vv" className="badge badge--neutral">Sin verificación de retiro</span>
+                  ),
+                ],
+              ]}
+            />
+            <p className="help" style={{ marginTop: 10 }}>
+              La verificación de Didit vale 30 minutos desde cada retiro: cada nuevo retiro la repite.
+            </p>
+          </Card>
+
+          <Card title="Aprobaciones en el chat" hint="La persona escribe «APROBAR» antes de que se mueva dinero">
+            {p.aprobaciones.length === 0 ? (
+              <p className="muted">Todavía no ha aprobado ningún pago.</p>
+            ) : (
+              <ul className="list">
+                {p.aprobaciones.map((a) => (
+                  <li key={a.reserva_id}>
+                    <div className="grow">
+                      <span className="title" style={{ fontSize: 14 }}>
+                        «{a.texto}» · <Link className="row-link mono" to={`/retiros/${a.reserva_id}`}>{a.reserva_id}</Link>
+                      </span>
+                      <span className="sub">{dateTime(a.ts)}</span>
+                    </div>
+                    <span className="mono">{cop(a.total_cop)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
 
           <Card title="Historial de retiros" hint={`${retiros.length} en total`}>

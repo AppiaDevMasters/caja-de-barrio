@@ -96,3 +96,96 @@ test('configuración guarda valor anterior y audita', () => {
   expect(s.config.anterior['umbrales.diditScore']).toBe(0.8);
   expect(s.auditoria[0].accion).toBe('configurar');
 });
+
+/* ---------- v2 ---------- */
+
+test('el timeline tiene 9 pasos y las comisiones cuadran (ejemplo de la guía)', () => {
+  const r = getState().reservas.find((x) => x.id === 'R-1052');
+  expect(r.timeline.map((s) => s.key)).toEqual([
+    'identidad',
+    'reserva',
+    'riesgo',
+    'cobro',
+    'cotizacion',
+    'aprobacion',
+    'pago',
+    'entrega_tendero',
+    'recibido_cliente',
+  ]);
+  expect(r).toMatchObject({
+    tasa_tendero: 0.015,
+    comision_tendero_cop: 3000,
+    comision_plataforma_cop: 2000,
+    total_cop: 205000,
+    efectivo_libre_al_reservar_cop: 800000,
+  });
+});
+
+test('la comisión del tendero respeta el mínimo de $1.000', () => {
+  const r = getState().reservas.find((x) => x.id === 'R-1055'); // $80.000 con 1 % → mínimo
+  expect(r.comision_tendero_cop).toBe(1000);
+  expect(r.comision_plataforma_cop).toBe(800);
+});
+
+test('si Didit rechaza la cara no hay reserva ni cobros', () => {
+  const r = getState().reservas.find((x) => x.id === 'R-1054');
+  expect(r.timeline[0].estado).toBe('fallido');
+  expect(r.timeline.slice(1).every((s) => s.estado === 'omitido')).toBe(true);
+  expect(r.total_cop).toBe(0);
+  expect(getState().alertas.find((a) => a.id === 'AL-0033')).toMatchObject({ regla: 'verificacion_facial_fallida', reserva_id: 'R-1054' });
+});
+
+test('resolver una disputa solo cambia el estado y audita (no mueve dinero)', () => {
+  expect(() => actions.resolverDisputa(actor('soporte'), 'R-1060', 'cliente', MOTIVO)).toThrow(/permiso/i);
+  expect(() => actions.resolverDisputa(actor('cumplimiento'), 'R-1060', 'otro', MOTIVO)).toThrow(/inválida/i);
+  actions.resolverDisputa(actor('cumplimiento'), 'R-1060', 'cliente', MOTIVO);
+  const s = getState();
+  const r = s.reservas.find((x) => x.id === 'R-1060');
+  expect(r.estado).toBe('cancelada');
+  expect(r.disputa).toMatchObject({ estado: 'resuelta', resolucion: 'cliente' });
+  expect(s.auditoria[0]).toMatchObject({ accion: 'resolver_disputa', entidad_id: 'R-1060' });
+  expect(() => actions.resolverDisputa(actor('cumplimiento'), 'R-1060', 'tendero', MOTIVO)).toThrow(/disputa abierta/i);
+});
+
+test('la ficha de persona deriva políticas, cupo, vigencia y aprobaciones del chat', () => {
+  const laura = getState().personas.find((p) => p.id === 'p-001');
+  expect(laura.politicas_version).toBe('v1-2026-10');
+  expect(laura.cupo_aprobado_cop).toBeGreaterThan(0);
+  expect(laura.aprobaciones.length).toBeGreaterThan(0);
+  expect(laura.aprobaciones[0].texto).toBe('APROBAR');
+  expect(new Date(laura.verificacion_vigente_hasta) > new Date()).toBe(true);
+  expect(getState().personas.find((p) => p.id === 'p-007').politicas_version).toBeNull();
+});
+
+test('solicitudes: aprobar crea la tienda activa, audita y solo cumplimiento puede', () => {
+  expect(getState().tiendas.some((t) => t.id === 't-006')).toBe(false);
+  expect(() => actions.aprobarSolicitud(actor('soporte'), 'sol-101', 'basico', MOTIVO)).toThrow(/permiso/i);
+  expect(() => actions.aprobarSolicitud(actor('cumplimiento'), 'sol-101', 'aliado', MOTIVO)).toThrow(/cuatro ojos/i);
+  const r = actions.aprobarSolicitud(actor('cumplimiento'), 'sol-101', 'basico', MOTIVO);
+  const s = getState();
+  const t = s.tiendas.find((x) => x.id === r.tienda_id);
+  expect(t).toMatchObject({ estado: 'activa', nivel: 'basico', nombre: 'Tienda Doña Luz' });
+  expect(s.solicitudes.find((x) => x.id === 'sol-101')).toMatchObject({ estado: 'aprobada', tienda_id: t.id });
+  expect(s.auditoria[0]).toMatchObject({ accion: 'aprobar_solicitud', entidad_tipo: 'solicitud' });
+  expect(r.notificacion).toMatch(/quedó activa/);
+  expect(() => actions.aprobarSolicitud(actor('cumplimiento'), 'sol-101', 'basico', MOTIVO)).toThrow(/en revisión/i);
+});
+
+test('solicitudes: soporte pide corrección y con checks en rojo no se aprueba', () => {
+  expect(() => actions.pedirCorreccionSolicitud(actor('soporte'), 'sol-102', [], MOTIVO)).toThrow(/al menos un dato/i);
+  actions.pedirCorreccionSolicitud(actor('soporte'), 'sol-102', ['ubicacion'], MOTIVO);
+  expect(getState().solicitudes.find((x) => x.id === 'sol-102')).toMatchObject({
+    estado: 'correccion_pedida',
+    correccion: { campos: ['ubicacion'] },
+  });
+  // sol-103 tiene la wallet en rojo y ya está en corrección: no se puede aprobar
+  expect(() => actions.aprobarSolicitud(actor('cumplimiento'), 'sol-103', 'basico', MOTIVO)).toThrow(/en revisión/i);
+});
+
+test('solicitudes: rechazar exige motivo y rango de cumplimiento', () => {
+  expect(can('soporte', 'solicitud.rechazar')).toBe(false);
+  expect(can('soporte', 'solicitud.correccion')).toBe(true);
+  expect(() => actions.rechazarSolicitud(actor('cumplimiento'), 'sol-102', 'corto')).toThrow(/motivo/i);
+  actions.rechazarSolicitud(actor('cumplimiento'), 'sol-102', MOTIVO);
+  expect(getState().solicitudes.find((x) => x.id === 'sol-102').estado).toBe('rechazada');
+});

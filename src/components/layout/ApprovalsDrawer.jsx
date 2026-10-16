@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Check, Users, X } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
-import { admin, selectAprobacionesPendientes } from '../../api/admin';
+import { admin, selectAprobacionesPendientes } from '../../api';
 import { useStoreState } from '../../data/mockStore';
 import { TIPO_APROBACION } from '../../data/mock/aprobaciones';
 import { relative } from '../../utils/format';

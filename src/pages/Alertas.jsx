@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, Ban, Download, EyeOff, Flag } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin, exportRowsUiaf, selectAlertas } from '../api/admin';
+import { admin, exportRowsUiaf, selectAlertas } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { REGLAS_ALERTA } from '../data/mock/alertas';
 import { dateTime, downloadCSV, relative } from '../utils/format';
@@ -165,6 +165,11 @@ export default function Alertas() {
                     {t && (
                       <span>
                         Tienda: <Link to={`/tiendas/${t.id}`}>{t.nombre}</Link>
+                      </span>
+                    )}
+                    {a.reserva_id && (
+                      <span>
+                        Retiro: <Link to={`/retiros/${a.reserva_id}`}>{a.reserva_id}</Link>
                       </span>
                     )}
                     <span title={dateTime(a.creada_en)}>{relative(a.creada_en)}</span>

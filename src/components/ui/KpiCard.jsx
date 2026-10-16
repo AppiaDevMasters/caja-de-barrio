@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import {
   Banknote,
   Check,
+  ClipboardCheck,
   Flag,
   ShieldAlert,
   Store,
@@ -18,6 +19,7 @@ const ICONS = {
   store: Store,
   banknote: Banknote,
   flag: Flag,
+  clipboard: ClipboardCheck,
 };
 
 export default function KpiCard({ kpi, linkable = true }) {
