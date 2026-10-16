@@ -17,6 +17,9 @@ Este servicio no guarda llaves de proveedores: solo `BACKEND_URL` y `SERVICIO_TO
 | `registrar_persona` | `POST /internal/identidad/personas` |
 | `crear_sesion_facial` | `POST /internal/identidad/verificaciones` |
 | `estado_verificacion` | `GET /internal/identidad/verificaciones/{session_id}` |
+| `solicitar_ser_tendero` | `POST /internal/identidad/solicitudes-tendero` |
+| `consultar_solicitud_tendero` | `GET /internal/identidad/solicitudes-tendero` |
+| `corregir_solicitud_tendero` | `PUT /internal/identidad/solicitudes-tendero/{id}` |
 | `procesar_webhook_didit (interna)` | `POST /internal/identidad/webhooks/didit` |
 
 Las marcadas como internas no las ve el modelo: las llama el agente desde código (webhooks o después de leer
