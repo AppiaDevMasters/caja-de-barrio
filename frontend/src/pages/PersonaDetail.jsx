@@ -1,0 +1,466 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { Ban, Check, ExternalLink, LockOpen, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import { can } from '../auth/permissions';
+import { USE_MOCK, admin, getPersona, useAdminQuery } from '../api';
+import { useStoreState } from '../data/mockStore';
+import { TOPE_MAX_PERSONA } from '../data/mock/config';
+import { REGLAS_ALERTA } from '../data/mock/alertas';
+import { POLITICAS_VERSION } from '../data/mock/personas';
+import { cop, dateTime, maskCedula, maskPhone, relative } from '../utils/format';
+import ActionDialog from '../components/ui/ActionDialog';
+import MaskField from '../components/ui/MaskField';
+import BilleteraCard from '../components/ui/BilleteraCard';
+import StatusBadge from '../components/ui/StatusBadge';
+import { BackLink, Card, DefList, EmptyState, Notice, QueryError } from '../components/ui/primitives';
+
+const tri = (v, yes, no, pending = 'Pendiente') =>
+  v === null || v === undefined ? (
+    <span className="badge badge--neutral">{pending}</span>
+  ) : v ? (
+    <span className="badge badge--success">{yes}</span>
+  ) : (
+    <span className="badge badge--danger">{no}</span>
+  );
+
+export default function PersonaDetail() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const state = useStoreState();
+  const [dlg, setDlg] = useState(null);
+  const { data: p, loading, error, refetch } = useAdminQuery(`persona:${id}`, () => getPersona(id));
+
+  if (!p) {
+    return (
+      <>
+        <BackLink to="/personas">Personas</BackLink>
+        {loading ? (
+          <div className="card" style={{ display: 'grid', gap: 10 }} aria-busy="true">
+            <span className="skeleton" style={{ width: '35%', height: 24 }} />
+            <span className="skeleton" style={{ width: '80%' }} />
+            <span className="skeleton" style={{ width: '60%' }} />
+          </div>
+        ) : error && error.status !== 404 ? (
+          <QueryError error={error} onRetry={refetch} />
+        ) : (
+          <EmptyState title="Persona no encontrada" />
+        )}
+      </>
+    );
+  }
+
+  const est = p.estado_registro;
+  const umbral = state.config.umbrales.diditScore;
+  // Retiros, alertas y cuatro ojos todavía salen del mock: en modo real no se muestran para no mezclar datos.
+  const retiros = USE_MOCK ? state.reservas.filter((r) => r.persona_id === p.id) : [];
+  const alertas = USE_MOCK ? state.alertas.filter((a) => a.persona_id === p.id) : [];
+  const desbloqueoPendiente = USE_MOCK
+    ? state.aprobaciones.find((a) => a.estado === 'pendiente' && a.entidad.id === p.id)
+    : null;
+  const compartido =
+    USE_MOCK && p.dispositivo ? state.personas.filter((x) => x.id !== p.id && x.dispositivo === p.dispositivo) : [];
+  const enRevision = est === 'revision_manual' || est === 'verificando';
+
+  const vigente = p.verificacion_vigente_hasta && new Date(p.verificacion_vigente_hasta) > new Date();
+  const abrir = (cfg) => setDlg(cfg);
+
+  const acciones = [];
+  if (enRevision) {
+    if (can(user.rol, 'persona.aprobar'))
+      acciones.push(
+        <button key="ap" className="btn btn--primary" onClick={() =>
+          abrir({
+            title: 'Aprobar registro',
+            description: `${p.nombre} queda aprobada: se crea su billetera (si no la tiene), se le abona la carga inicial de la demo y se le avisa por WhatsApp.`,
+            confirmLabel: 'Aprobar',
+            successMsg: 'Registro aprobado.',
+            run: ({ motivo }) => admin.aprobarPersona(p.id, motivo),
+          })
+        }>
+          <Check size={16} /> Aprobar
+        </button>
+      );
+    if (est === 'revision_manual' && can(user.rol, 'persona.reintento'))
+      acciones.push(
+        <button key="re" className="btn" onClick={() =>
+          abrir({
+            title: 'Pedir nueva verificación',
+            description: 'La persona volverá a «Pendiente» y se le pedirá repetir cédula y selfie por WhatsApp.',
+            confirmLabel: 'Pedir reintento',
+            successMsg: 'Reintento solicitado.',
+            run: ({ motivo }) => admin.pedirReintento(p.id, motivo),
+          })
+        }>
+          <RotateCcw size={16} /> Pedir reintento
+        </button>
+      );
+    if (can(user.rol, 'persona.rechazar'))
+      acciones.push(
+        <button key="rj" className="btn btn--outline-danger" onClick={() =>
+          abrir({
+            title: 'Rechazar registro',
+            description: 'El registro queda cerrado. Esta decisión se le avisa a la persona por WhatsApp.',
+            tone: 'danger',
+            confirmLabel: 'Rechazar registro',
+            successMsg: 'Registro rechazado.',
+            run: ({ motivo }) => admin.rechazarPersona(p.id, motivo),
+          })
+        }>
+          <X size={16} /> Rechazar
+        </button>
+      );
+  }
+  if (est === 'aprobada' && can(user.rol, 'persona.bloquear')) {
+    acciones.push(
+      <button key="bl" className="btn btn--danger" onClick={() =>
+        abrir({
+          title: 'Bloquear persona',
+          description: 'El agente dejará de atender retiros de esta persona de inmediato.',
+          tone: 'danger',
+          confirmLabel: 'Bloquear',
+          successMsg: 'Persona bloqueada.',
+          run: ({ motivo }) => admin.bloquearPersona(p.id, motivo),
+        })
+      }>
+        <Ban size={16} /> Bloquear
+      </button>
+    );
+  }
+  if (est === 'bloqueada' && can(user.rol, 'persona.desbloquear') && !desbloqueoPendiente) {
+    acciones.push(
+      <button key="db" className="btn btn--primary" onClick={() =>
+        abrir({
+          title: 'Solicitar desbloqueo',
+          description: 'Requiere cuatro ojos: tu solicitud cuenta como la primera firma y otra persona de cumplimiento debe aprobarla.',
+          confirmLabel: 'Enviar a segunda aprobación',
+          successMsg: (r) => `Solicitud ${r.aprobacion} creada. Falta la segunda firma.`,
+          run: ({ motivo }) => admin.solicitarDesbloqueoPersona(p.id, motivo),
+        })
+      }>
+        <LockOpen size={16} /> Solicitar desbloqueo
+      </button>
+    );
+  }
+
+  const max = TOPE_MAX_PERSONA[p.nivel];
+  const puedeTope = can(user.rol, 'persona.tope') && est === 'aprobada';
+
+  return (
+    <>
+      <BackLink to="/personas">Personas</BackLink>
+      <div className="page-head">
+        <div>
+          <h1 style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            {p.nombre} <StatusBadge kind="persona" value={est} />
+          </h1>
+          <p>
+            <span className="mono">{p.id}</span> · {p.nivel} · registrada {relative(p.creada_en)}
+          </p>
+        </div>
+        {acciones.length > 0 && <div className="page-actions">{acciones}</div>}
+      </div>
+
+      {est === 'revision_manual' && (
+        <div style={{ marginBottom: 16 }}>
+          <Notice tone="warning">
+            <strong>Enviada a revisión manual:</strong> {p.motivo_revision || 'Sin motivo registrado.'}
+          </Notice>
+        </div>
+      )}
+      {desbloqueoPendiente && (
+        <div style={{ marginBottom: 16 }}>
+          <Notice>
+            Desbloqueo en espera de segunda firma ({desbloqueoPendiente.id}, iniciada por{' '}
+            {desbloqueoPendiente.firmas[0].nombre}). Revisa «Aprobaciones» en la barra superior.
+          </Notice>
+        </div>
+      )}
+      {acciones.length === 0 && !['aprobada', 'bloqueada'].includes(est) && !enRevision && (
+        <div style={{ marginBottom: 16 }}>
+          <Notice>
+            {est === 'rechazada'
+              ? 'El registro fue rechazado: no admite más acciones.'
+              : 'El registro está en curso (flujo automático). Aparecerá en la cola solo si alguna verificación falla.'}
+          </Notice>
+        </div>
+      )}
+
+      <div className="grid-2">
+        <div className="stack">
+          <Card title="Datos básicos" hint="Enmascarados por defecto · revelar queda en auditoría">
+            <DefList
+              items={[
+                ['Cédula', <MaskField key="c" masked={maskCedula(p.cedula)} entity="persona" entityId={p.id} field="cedula" />],
+                ['WhatsApp', <MaskField key="w" masked={maskPhone(p.whatsapp)} entity="persona" entityId={p.id} field="whatsapp" />],
+                ['Wallet', p.wallet ? <span className="mono">{p.wallet}</span> : <span className="muted">Sin wallet registrada</span>],
+                ['Registro', dateTime(p.creada_en)],
+                ['Verificada', p.verificada_en ? dateTime(p.verificada_en) : '—'],
+                ['Dispositivo', <span key="d" className="mono">{p.dispositivo}</span>],
+              ]}
+            />
+            {compartido.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <Notice tone="warning">
+                  Este dispositivo también aparece en: {compartido.map((x) => x.nombre).join(', ')}.
+                </Notice>
+              </div>
+            )}
+          </Card>
+
+          <Card title="Verificaciones" hint="No se guardan selfies ni fotos del documento">
+            <div className="split">
+              <div>
+                <h3 style={{ fontSize: 14, marginBottom: 10 }}>Verifik · cédula</h3>
+                <DefList
+                  items={[
+                    ['Cédula válida', tri(p.verifik.valida, 'Válida', 'No válida')],
+                    ['Nombre', tri(p.verifik.nombre_coincide, 'Coincide', 'No coincide')],
+                    p.verifik.nombre_registrado && ['Según Verifik', <span key="n" className="mono">{p.verifik.nombre_registrado}</span>],
+                    p.verifik.error && ['Error de Verifik', <span key="e" className="badge badge--warning">{p.verifik.error}</span>],
+                  ]}
+                />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 14, marginBottom: 10 }}>Didit · cara</h3>
+                <DefList
+                  items={[
+                    [
+                      'Prueba de vida',
+                      p.didit.liveness === 'aprobada' ? (
+                        <span className="badge badge--success">Aprobada</span>
+                      ) : p.didit.liveness === 'fallida' ? (
+                        <span className="badge badge--danger">Fallida</span>
+                      ) : (
+                        <span className="badge badge--neutral">Pendiente</span>
+                      ),
+                    ],
+                    [
+                      'Score',
+                      p.didit.score === null ? (
+                        '—'
+                      ) : (
+                        <span className="mono">
+                          {p.didit.score.toFixed(2)}{' '}
+                          <span className={p.didit.score >= umbral ? 'badge badge--success' : 'badge badge--danger'}>
+                            umbral {umbral.toFixed(2)}
+                          </span>
+                        </span>
+                      ),
+                    ],
+                    p.didit.en && ['Fecha', dateTime(p.didit.en)],
+                    p.didit_ref && [
+                      'Sesión',
+                      <a key="s" href={`https://business.didit.me/sessions/${p.didit_ref}`} target="_blank" rel="noopener noreferrer">
+                        Abrir en Didit <ExternalLink size={13} style={{ verticalAlign: '-2px' }} />
+                      </a>,
+                    ],
+                  ]}
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Listas restrictivas y PEP">
+            <DefList
+              items={[
+                ['Listas restrictivas', tri(p.listas.restrictivas ? false : true, 'Sin coincidencias', 'Con coincidencia')],
+                ['Persona expuesta (PEP)', tri(p.listas.pep ? false : true, 'Sin coincidencias', 'Coincidencia')],
+                ['Teléfono único', tri(p.telefono_unico, 'No está en otra cuenta', 'Duplicado')],
+                p.listas.detalle && ['Detalle', p.listas.detalle],
+              ]}
+            />
+          </Card>
+
+          <Card title="Políticas y cupo" hint="Se aceptan al registrarse · el cupo se aprueba una sola vez en la wallet">
+            <DefList
+              items={[
+                [
+                  'Políticas aceptadas',
+                  p.politicas_version ? (
+                    <span key="pv">
+                      <span className="mono">{p.politicas_version}</span>{' '}
+                      {p.politicas_version === POLITICAS_VERSION ? (
+                        <span className="badge badge--success">Vigente</span>
+                      ) : (
+                        <span className="badge badge--warning">Desactualizada</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="badge badge--neutral">Sin aceptar</span>
+                  ),
+                ],
+                ['Aceptadas el', p.politicas_aceptadas_en ? dateTime(p.politicas_aceptadas_en) : '—'],
+                USE_MOCK && [
+                  'Cupo aprobado en la wallet',
+                  p.cupo_aprobado_cop ? (
+                    <span key="cu" className="mono">
+                      {cop(p.cupo_aprobado_cop)} · {dateTime(p.cupo_aprobado_en)}
+                    </span>
+                  ) : (
+                    <span className="muted">Aún sin aprobar</span>
+                  ),
+                ],
+                USE_MOCK && [
+                  'Verificación de identidad',
+                  vigente ? (
+                    <span key="vv" className="badge badge--success">Vigente hasta {dateTime(p.verificacion_vigente_hasta)}</span>
+                  ) : p.verificacion_vigente_hasta ? (
+                    <span key="vv" className="badge badge--neutral">Vencida · {dateTime(p.verificacion_vigente_hasta)}</span>
+                  ) : (
+                    <span key="vv" className="badge badge--neutral">Sin verificación de retiro</span>
+                  ),
+                ],
+              ]}
+            />
+            {USE_MOCK && (
+              <p className="help" style={{ marginTop: 10 }}>
+                La verificación de Didit vale 30 minutos desde cada retiro: cada nuevo retiro la repite.
+              </p>
+            )}
+          </Card>
+
+          <BilleteraCard billetera={p.billetera} />
+
+          {USE_MOCK && (
+          <Card title="Aprobaciones en el chat" hint="La persona escribe «APROBAR» antes de que se mueva dinero">
+            {p.aprobaciones.length === 0 ? (
+              <p className="muted">Todavía no ha aprobado ningún pago.</p>
+            ) : (
+              <ul className="list">
+                {p.aprobaciones.map((a) => (
+                  <li key={a.reserva_id}>
+                    <div className="grow">
+                      <span className="title" style={{ fontSize: 14 }}>
+                        «{a.texto}» · <Link className="row-link mono" to={`/retiros/${a.reserva_id}`}>{a.reserva_id}</Link>
+                      </span>
+                      <span className="sub">{dateTime(a.ts)}</span>
+                    </div>
+                    <span className="mono">{cop(a.total_cop)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          )}
+
+          {USE_MOCK && (
+          <Card title="Historial de retiros" hint={`${retiros.length} en total`}>
+            {retiros.length === 0 ? (
+              <p className="muted">Sin retiros todavía.</p>
+            ) : (
+              <ul className="list">
+                {retiros.map((r) => (
+                  <li key={r.id}>
+                    <div className="grow">
+                      <Link className="title row-link mono" to={`/retiros/${r.id}`}>
+                        {r.id}
+                      </Link>
+                      <span className="sub">
+                        {state.tiendas.find((t) => t.id === r.tienda_id)?.nombre} · {relative(r.creada_en)}
+                      </span>
+                    </div>
+                    <span className="mono">{cop(r.monto_cop)}</span>
+                    <StatusBadge kind="reserva" value={r.estado} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          )}
+        </div>
+
+        <div className="stack">
+          {p.nivel && (
+          <Card
+            title="Nivel y tope"
+            actions={
+              puedeTope && (
+                <button
+                  className="btn btn--sm"
+                  onClick={() =>
+                    abrir({
+                      title: 'Ajustar tope por retiro',
+                      description: `Dentro del límite del ${p.nivel}: hasta ${cop(max)}.`,
+                      confirmLabel: 'Guardar tope',
+                      successMsg: 'Tope actualizado.',
+                      fields: [{ name: 'valor', label: 'Nuevo tope (COP)', type: 'number', min: 1, max, defaultValue: p.tope_retiro_cop }],
+                      run: ({ motivo, values }) => admin.ajustarTopePersona(p.id, values.valor, motivo),
+                    })
+                  }
+                >
+                  <SlidersHorizontal size={14} /> Ajustar
+                </button>
+              )
+            }
+          >
+            <DefList
+              items={[
+                ['Nivel', p.nivel],
+                ['Tope por retiro', <span key="t" className="mono">{cop(p.tope_retiro_cop)}</span>],
+                ['Límite del nivel', <span key="l" className="mono">{cop(max)}</span>],
+              ]}
+            />
+          </Card>
+          )}
+
+          {USE_MOCK && (
+          <Card title="Alertas" hint={`${alertas.length} vinculadas`}>
+            {alertas.length === 0 ? (
+              <p className="muted">Sin alertas.</p>
+            ) : (
+              <ul className="list">
+                {alertas.map((a) => (
+                  <li key={a.id}>
+                    <div className="grow">
+                      <Link className="title row-link" to="/alertas?estado=todas">
+                        {REGLAS_ALERTA[a.regla]}
+                      </Link>
+                      <span className="sub">{relative(a.creada_en)}</span>
+                    </div>
+                    <StatusBadge kind="alerta" value={a.estado} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          )}
+
+          <Card title="Historial de revisiones" hint="Estado, autor y motivo">
+            {p.historial.length === 0 ? (
+              <p className="muted">Sin cambios de estado manuales.</p>
+            ) : (
+              <ul className="list">
+                {p.historial.map((h, i) => (
+                  <li key={i} style={{ alignItems: 'flex-start' }}>
+                    <div className="grow">
+                      <span className="title" style={{ fontSize: 14 }}>
+                        {h.estado_anterior ? `${h.estado_anterior} → ${h.estado_nuevo}` : h.accion}
+                      </span>
+                      <span className="sub">
+                        {h.actor} · {dateTime(h.ts)}
+                      </span>
+                      {h.motivo && (
+                        <span className="sub" style={{ display: 'block', marginTop: 4 }}>
+                          «{h.motivo}»
+                        </span>
+                      )}
+                      {h.notificacion && (
+                        <span className="sub" style={{ display: 'block', marginTop: 4 }}>
+                          WhatsApp: «{h.notificacion}»
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      <ActionDialog config={dlg} onClose={() => setDlg(null)} />
+    </>
+  );
+}

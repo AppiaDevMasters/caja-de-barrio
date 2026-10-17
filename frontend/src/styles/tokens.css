@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+/* Tokens del Master · design-system/MASTER.md */
+:root {
+  --c-primary: #d97706;
+  --c-on-primary: #ffffff;
+  --c-secondary: #0f766e;
+  --c-cta: #b45309;
+  --c-cta-hover: #92400e;
+  --c-danger: #b91c1c;
+  --c-danger-hover: #991b1b;
+  --c-success: #15803d;
+  --c-warning: #ca8a04;
+
+  --c-bg: #f8fafc;
+  --c-surface: #ffffff;
+  --c-surface-2: #f1f5f9;
+  --c-text: #0f172a;
+  --c-muted: #475569;
+  --c-border: #e2e8f0;
+  --c-border-strong: #cbd5e1;
+
+  --c-primary-soft: #fef3c7;
+  --c-primary-text: #92400e;
+  --c-success-soft: #dcfce7;
+  --c-success-text: #166534;
+  --c-danger-soft: #fee2e2;
+  --c-danger-text: #991b1b;
+  --c-warning-soft: #fef9c3;
+  --c-warning-text: #854d0e;
+  --c-info-soft: #ccfbf1;
+  --c-info-text: #115e59;
+  --c-neutral-soft: #f1f5f9;
+  --c-neutral-text: #334155;
+
+  --font-sans: 'Fira Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.22);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-micro: 150ms;
+  --t-std: 250ms;
+
+  --sidebar-w: 248px;
+  --topbar-h: 56px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --c-primary: #fbbf24;
+  --c-on-primary: #1c1917;
+  --c-secondary: #2dd4bf;
+  --c-cta: #f59e0b;
+  --c-cta-hover: #fbbf24;
+  --c-danger: #f87171;
+  --c-danger-hover: #fca5a5;
+  --c-success: #4ade80;
+  --c-warning: #facc15;
+
+  --c-bg: #0f172a;
+  --c-surface: #1e293b;
+  --c-surface-2: #263449;
+  --c-text: #f8fafc;
+  --c-muted: #94a3b8;
+  --c-border: #334155;
+  --c-border-strong: #475569;
+
+  --c-primary-soft: rgba(251, 191, 36, 0.16);
+  --c-primary-text: #fcd34d;
+  --c-success-soft: rgba(74, 222, 128, 0.14);
+  --c-success-text: #86efac;
+  --c-danger-soft: rgba(248, 113, 113, 0.16);
+  --c-danger-text: #fca5a5;
+  --c-warning-soft: rgba(250, 204, 21, 0.14);
+  --c-warning-text: #fde047;
+  --c-info-soft: rgba(45, 212, 191, 0.14);
+  --c-info-text: #5eead4;
+  --c-neutral-soft: rgba(148, 163, 184, 0.16);
+  --c-neutral-text: #cbd5e1;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
