@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { FlaskConical, KeyRound, LoaderCircle, LockKeyhole, ScrollText, ShieldCheck, Vault } from 'lucide-react';
+import { KeyRound, LoaderCircle, LockKeyhole, ScrollText, ShieldCheck, Vault } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { ROLE_LABEL } from '../auth/permissions';
-import { USERS } from '../data/mock/users';
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -114,39 +112,6 @@ export default function Login() {
               Entrar
             </button>
           </form>
-
-          <section className="qa-card" aria-label="Credenciales de QA">
-            <h3>
-              <FlaskConical size={16} /> Credenciales de QA · MVP mock
-            </h3>
-            {USERS.map((u) => (
-              <button
-                key={u.username}
-                type="button"
-                className={`qa-row ${u.principal ? 'is-main' : ''}`}
-                onClick={() => {
-                  setUsername(u.username);
-                  setPassword(u.password);
-                  setError('');
-                }}
-                aria-label={`Usar credenciales de ${ROLE_LABEL[u.rol]}`}
-              >
-                <span>
-                  <b style={{ fontSize: 13 }}>{ROLE_LABEL[u.rol]}</b>
-                  {u.principal && <span className="badge badge--primary" style={{ marginLeft: 8 }}>Principal</span>}
-                  <span className="cell-sub mono">
-                    {u.username} / {u.password}
-                  </span>
-                </span>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  Usar
-                </span>
-              </button>
-            ))}
-            <p className="help muted" style={{ fontSize: 12, marginTop: 10 }}>
-              Sin segundo factor en el mock. En producción: HTTPS + TOTP obligatorio.
-            </p>
-          </section>
         </motion.div>
       </main>
     </div>
