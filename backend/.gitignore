@@ -1,0 +1,33 @@
+# Secretos: nunca versionar.
+# Las llaves de Open Payments y los tokens viven en .env; sus NOMBRES, en env.example
+# (que si se versiona: el patron .env.* no lo alcanza).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+private-key.raw
+public-key.raw
+jwks.json
+
+# Go: binarios y artefactos de compilacion.
+/bin/
+/dist/
+*.test
+*.out
+coverage.txt
+
+# Volcados locales y datos de contenedores.
+/data/
+/tmp/
+
+# Editores y sistema operativo.
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Despliegue: usuario y clave de la UI de Rafiki que genera deploy/instalar.sh.
+deploy/.credenciales-admin
+# Llaves de proveedores en el VPS (Verifik, Didit): solo deploy/llaves.env.example se versiona.
+deploy/llaves.env

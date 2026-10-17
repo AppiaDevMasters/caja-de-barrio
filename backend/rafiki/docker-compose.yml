@@ -1,0 +1,274 @@
+# Rafiki (Open Payments) para desarrollo local de Caja de Barrio.
+#
+# Un solo ASE (account servicing entity) = Caja de Barrio, con su backend,
+# su servidor de autorizacion GNAP y la base de datos contable en Postgres.
+#
+# Los tres servicios `rafiki-*` usan imagenes publicadas y fijadas por version,
+# no se compila nada desde el monorepo de Rafiki.
+#
+# Uso:  ./scripts/init.sh && docker compose up -d
+# Ver:  README.md
+
+name: rafiki-caja-barrio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rafiki-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rafiki}
+      # Requerido: lo genera scripts/init.sh (hex, sin caracteres que rompan la URL).
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD, ejecuta ./scripts/init.sh}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./config/dbinit.sql:/docker-entrypoint-initdb.d/10-dbinit.sql:ro
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-rafiki} -d postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [rafiki]
+
+  redis:
+    image: redis:7-alpine
+    container_name: rafiki-redis
+    restart: unless-stopped
+    # Cache y datos de ILP: no necesita persistencia en desarrollo.
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [rafiki]
+
+  # Servidor de recursos Open Payments + connector ILP + Admin API (GraphQL).
+  rafiki-backend:
+    image: ghcr.io/interledger/rafiki-backend:${RAFIKI_VERSION:-v2.4.5-de}
+    container_name: rafiki-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - '${OPEN_PAYMENTS_PORT:-3000}:3000' # API Open Payments
+      - '${ADMIN_API_PORT:-3001}:3001' # Admin API (GraphQL)
+      - '${CONNECTOR_PORT:-3002}:3002' # ILP over HTTP
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      INSTANCE_NAME: ${INSTANCE_NAME:-Caja de Barrio}
+      TRUST_PROXY: 'false'
+      OPEN_PAYMENTS_PORT: 3000
+      ADMIN_PORT: 3001
+      CONNECTOR_PORT: 3002
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-rafiki}:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD, ejecuta ./scripts/init.sh}@postgres:5432/${BACKEND_DB:-rafiki_backend}"
+      REDIS_URL: redis://redis:6379/0
+      # Contabilidad en Postgres para minimizar piezas moviles.
+      # Para TigerBeetle usa el overlay: -f compose.tigerbeetle.yml
+      USE_TIGERBEETLE: 'false'
+      # Base que el servidor de recursos anuncia a los clientes (el `resourceServer`
+      # del documento de wallet address): dentro de la red, por nombre de servicio,
+      # porque los contenedores no alcanzan los puertos TCP del host.
+      OPEN_PAYMENTS_URL: ${OPEN_PAYMENTS_URL:-http://rafiki-backend:3000}
+      WALLET_ADDRESS_URL: ${WALLET_ADDRESS_URL:-http://rafiki-backend:3000/.well-known/pay}
+      ILP_ADDRESS: ${ILP_ADDRESS:-test.caja-de-barrio}
+      ILP_CONNECTOR_URL: ${ILP_CONNECTOR_URL:-http://rafiki-backend:3002}
+      AUTH_SERVER_GRANT_URL: http://rafiki-auth:3006
+      AUTH_SERVER_INTROSPECTION_URL: http://rafiki-auth:3007
+      AUTH_SERVICE_API_URL: http://rafiki-auth:3009
+      # Clave Ed25519 del ASE. Si no se fija PRIVATE_KEY_FILE, Rafiki genera una
+      # clave efimera en memoria y la pierde en cada reinicio.
+      KEY_ID: ${KEY_ID:?}
+      PRIVATE_KEY_FILE: /home/rafiki/keys/private-key.pem
+      ADMIN_API_SECRET: ${ADMIN_API_SECRET:?}
+      SIGNATURE_SECRET: ${SIGNATURE_SECRET:?}
+      SIGNATURE_VERSION: '1'
+      STREAM_SECRET: ${STREAM_SECRET:?}
+      DB_ENCRYPTION_SECRET: ${DB_ENCRYPTION_SECRET:?}
+      OPERATOR_TENANT_ID: ${OPERATOR_TENANT_ID:?}
+      # Endpoints que debe exponer nuestro backend (rol de ASE).
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://host.docker.internal:8000/webhooks}
+      EXCHANGE_RATES_URL: ${EXCHANGE_RATES_URL:-http://host.docker.internal:8000/rates}
+      ENABLE_TELEMETRY: 'false'
+      ENABLE_SPSP_PAYMENT_POINTERS: 'true'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - ./config/keys:/home/rafiki/keys:ro
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3001/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks: [rafiki]
+
+  # Servidor de autorizacion GNAP + Admin API de auth.
+  rafiki-auth:
+    image: ghcr.io/interledger/rafiki-auth:${RAFIKI_VERSION:-v2.4.5-de}
+    container_name: rafiki-auth
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - '${AUTH_ADMIN_PORT:-3003}:3003' # Admin API (GraphQL)
+      - '${AUTH_PORT:-3006}:3006' # Open Payments authorization server
+      - '${INTROSPECTION_PORT:-3007}:3007' # Introspeccion de access tokens
+      - '${INTERACTION_PORT:-3009}:3009' # Interaccion del usuario (grant interactivo)
+      - '${AUTH_SERVICE_API_PORT:-3011}:3011' # API servicio a servicio del auth server
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      TRUST_PROXY: 'false'
+      ADMIN_PORT: 3003
+      AUTH_PORT: 3006
+      INTROSPECTION_PORT: 3007
+      INTERACTION_PORT: 3009
+      SERVICE_API_PORT: 3011
+      AUTH_DATABASE_URL: postgresql://${POSTGRES_USER:-rafiki}:${POSTGRES_PASSWORD:?}@postgres:5432/${AUTH_DB:-rafiki_auth}
+      REDIS_URL: redis://redis:6379/1
+      AUTH_SERVER_URL: ${AUTH_SERVER_URL:-http://localhost:3006}
+      # URL del IdP: la abre el navegador del usuario, no el contenedor.
+      IDENTITY_SERVER_URL: ${IDENTITY_SERVER_URL:-http://localhost:8000/idp/}
+      IDENTITY_SERVER_SECRET: ${IDENTITY_SERVER_SECRET:?}
+      COOKIE_KEY: ${COOKIE_KEY:?}
+      ADMIN_API_SECRET: ${ADMIN_API_SECRET:?}
+      OPERATOR_TENANT_ID: ${OPERATOR_TENANT_ID:?}
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3003/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks: [rafiki]
+
+  # UI de administracion de Rafiki. Pide Tenant ID + API Secret y necesita HTTPS o
+  # un tunel SSH: su cookie de sesion va con Secure y el navegador la descarta sobre http.
+  rafiki-admin:
+    image: ghcr.io/interledger/rafiki-frontend:${RAFIKI_VERSION:-v2.4.5-de}
+    container_name: rafiki-admin
+    restart: unless-stopped
+    depends_on:
+      rafiki-backend:
+        condition: service_healthy
+    ports:
+      - '${ADMIN_UI_PORT:-3010}:3010'
+    environment:
+      PORT: 3010
+      # La imagen de produccion corre `remix-serve`: en modo development exige
+      # REMIX_DEV_ORIGIN y el contenedor entra en bucle de reinicio.
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      GRAPHQL_URL: http://rafiki-backend:3001/graphql
+      # La UI enlaza wallet addresses que abre un navegador, asi que usa la base
+      # publica y no el nombre de servicio que anuncian los contenedores.
+      OPEN_PAYMENTS_URL: ${PUBLIC_OPEN_PAYMENTS_URL:-http://localhost:3000}
+      AUTH_ENABLED: 'false'
+      ENABLE_INSECURE_MESSAGE_COOKIE: 'true'
+      SIGNATURE_VERSION: '1'
+      SIGNATURE_SECRET: ${SIGNATURE_SECRET:?}
+    networks: [rafiki]
+
+  # Base propia del contrato (separada de las bases de Rafiki). El backend aplica las
+  # migraciones embebidas al arrancar, cuando DATABASE_URL esta configurada.
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: caja-de-barrio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: caja
+      POSTGRES_PASSWORD: ${CAJA_DB_PASSWORD:?falta CAJA_DB_PASSWORD, ejecuta ./scripts/init.sh}
+      POSTGRES_DB: caja_de_barrio
+    volumes:
+      - caja-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U caja -d caja_de_barrio']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [rafiki]
+
+  # Backend de Caja de Barrio: el ASE que Rafiki llama (webhooks, tipos de cambio e
+  # IdP) y el cliente Open Payments. Corre DENTRO de la red `rafiki` a proposito:
+  # los contenedores no alcanzan los puertos TCP del host (host.docker.internal no
+  # responde desde aca), asi que un backend en el host nunca recibiria un webhook.
+  # El puerto se publica igual, porque el IdP lo abre el navegador del usuario.
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: caja-de-barrio-backend:local
+    container_name: caja-de-barrio-backend
+    restart: unless-stopped
+    depends_on:
+      rafiki-backend:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      HTTP_ADDR: ':8000'
+      # La Admin API se alcanza por nombre de servicio, no por localhost.
+      RAFIKI_ADMIN_URL: http://rafiki-backend:3001/graphql
+      # Base efectiva de las wallet addresses del ASE: el ajuste por tenant
+      # WALLET_ADDRESS_URL de la base. El seed la lee y exige https (Rafiki rechaza
+      # toda wallet address URL que no lo sea); el backend no la usa en ejecucion.
+      RAFIKI_OPEN_PAYMENTS_URL: https://rafiki-backend:3000
+      RAFIKI_TENANT_ID: ${OPERATOR_TENANT_ID:?}
+      RAFIKI_ADMIN_API_SECRET: ${ADMIN_API_SECRET:?}
+      RAFIKI_SIGNATURE_SECRET: ${SIGNATURE_SECRET:?}
+      RAFIKI_IDENTITY_SERVER_SECRET: ${IDENTITY_SERVER_SECRET:?}
+      # El IdP necesita las dos bases del auth server: la interna para hablar servidor
+      # a servidor (la publica no es alcanzable desde el contenedor) y la publica para
+      # el redirect con el que el navegador cierra la interaccion.
+      RAFIKI_AUTH_SERVER_URL: http://rafiki-auth:3006
+      RAFIKI_AUTH_SERVER_PUBLIC_URL: ${AUTH_SERVER_URL:?}
+      # La Servidor de interaccion del auth server, que es donde el IdP lee y resuelve la
+      # interaccion: /grant/{id}/{nonce}. NO es la ruta del navegador
+      # (/interact/{id}/{nonce} en el puerto 3006), y llamar a esa daba 404.
+      RAFIKI_INTERACTION_SERVER_URL: http://rafiki-auth:3009
+      # La base y el token sólo llegan al backend: los MCP no reciben credenciales de DB.
+      DATABASE_URL: postgres://caja:${CAJA_DB_PASSWORD:?falta CAJA_DB_PASSWORD}@db:5432/caja_de_barrio?sslmode=disable
+      SERVICIO_TOKEN: ${SERVICIO_TOKEN:?falta SERVICIO_TOKEN, ejecuta ./scripts/init.sh}
+      # OJO: aca NO se pasa KEY_ID. Ese es el kid de la clave del ASE de Rafiki, que no
+      # tiene nada que ver con la clave de NUESTRO cliente. El cliente se nombra con la
+      # huella RFC 7638 de su propia clave, que es lo que el seed registra en la wallet
+      # address; con KEY_ID el servidor de autorizacion bajaba nuestro JWKS, no encontraba
+      # ese kid y respondia 400 "could not determine client".
+      OP_PRIVATE_KEY_PATH: /home/backend/keys/op-private-key.pem
+    volumes:
+      # La MISMA clave que registro el seed: si el contenedor generara otra, el JWK
+      # registrado en la wallet address dejaria de verificar.
+      - ../keys:/home/backend/keys:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    networks: [rafiki]
+
+networks:
+  rafiki:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+          gateway: 10.10.0.1
+
+volumes:
+  postgres-data:
+  caja-db-data:
