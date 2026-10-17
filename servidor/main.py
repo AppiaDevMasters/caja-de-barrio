@@ -106,6 +106,16 @@ async def pagar(reserva_id: str) -> dict:
 
 
 @mcp.tool()
+async def consultar_saldo(whatsapp: str) -> dict:
+    """Billetera virtual: cuánto tiene la persona (o la tienda, si quien pregunta es tendero).
+
+    Args:
+        whatsapp: Número de WhatsApp de quien pregunta.
+    """
+    return await llamar("GET", "/pagos/saldo", params={"whatsapp": whatsapp})
+
+
+@mcp.tool()
 async def estado_cobro(incoming_payment_url: str) -> dict:
     """Consulta si el cobro de la tienda ya quedó completado.
 

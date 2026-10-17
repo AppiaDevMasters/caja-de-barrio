@@ -41,6 +41,12 @@ async def test_pagar_sin_aprobacion_devuelve_el_error_del_backend(falso):
     assert (await m.pagar("res_1"))["codigo"] == "SIN_APROBACION"
 
 
+async def test_consultar_saldo(falso):
+    await m.consultar_saldo("573000000001")
+    assert falso.ultimo.method == "GET" and falso.ultimo.url.path == "/internal/pagos/saldo"
+    assert falso.ultimo.url.params["whatsapp"] == "573000000001"
+
+
 async def test_estado_cobro(falso):
     await m.estado_cobro("https://ip/1")
     assert falso.ultimo.url.path == "/internal/pagos/cobros/estado"

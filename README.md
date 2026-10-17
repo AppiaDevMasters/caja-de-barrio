@@ -18,6 +18,7 @@ Este servicio no guarda llaves de proveedores: solo `BACKEND_URL` y `SERVICIO_TO
 | `cotizar` | `POST /internal/pagos/cotizaciones` |
 | `registrar_aprobacion (interna)` | `POST /internal/pagos/aprobaciones` |
 | `pagar` | `POST /internal/pagos/pagos` con `Idempotency-Key` |
+| `consultar_saldo` | `GET /internal/pagos/saldo` |
 | `estado_cobro` | `GET /internal/pagos/cobros/estado` |
 
 Las marcadas como internas no las ve el modelo: las llama el agente desde código (webhooks o después de leer
