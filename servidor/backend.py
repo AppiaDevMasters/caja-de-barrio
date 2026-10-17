@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    backend_url: str = "http://backend:8090/internal"
+    backend_url: str = "https://backend.cajadebarrio.lat/internal"
     servicio_token: str = ""
     puerto: int = 8000
     timeout_s: float = 30.0
