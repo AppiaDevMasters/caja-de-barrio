@@ -3,12 +3,21 @@ import { Link, useParams } from 'react-router-dom';
 import { FilePlus2, Gavel, Scale, ShieldCheck, XCircle } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin } from '../api';
-import { useStoreState } from '../data/mockStore';
+import { USE_MOCK, admin, getRetiro, useAdminQuery } from '../api';
 import { cop, dateTime, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';
 import StatusBadge from '../components/ui/StatusBadge';
-import { BackLink, Card, DefList, EmptyState, Notice, Timeline } from '../components/ui/primitives';
+import { BackLink, Card, DefList, EmptyState, Notice, QueryError, Timeline } from '../components/ui/primitives';
+
+// `open_payments` llega como `{ incoming..., quote..., outgoing... }` con las URLs de cada recurso.
+const OP_LABEL = [
+  [/incoming/i, 'Cobro (incoming payment)'],
+  [/quote/i, 'Cotización (quote)'],
+  [/outgoing/i, 'Pago (outgoing payment)'],
+];
+const opLabel = (clave) => OP_LABEL.find(([re]) => re.test(clave))?.[1] || clave;
+const opEnlaces = (op) =>
+  Object.entries(op || {}).filter(([, v]) => typeof v === 'string' && /^https?:\/\//.test(v));
 
 const EVENTO_LABEL = {
   aviso_tendero: 'Aviso al tendero',
@@ -24,28 +33,40 @@ const pctFmt = (n) => `${(n * 100).toString().replace('.', ',')} %`;
 export default function RetiroDetail() {
   const { id } = useParams();
   const { user } = useAuth();
-  const state = useStoreState();
   const [dlg, setDlg] = useState(null);
-  const r = state.reservas.find((x) => x.id === id);
+  const { data: r, loading, error, refetch } = useAdminQuery(`retiro:${id}`, () => getRetiro(id));
 
   if (!r) {
     return (
       <>
         <BackLink to="/retiros">Reservas y retiros</BackLink>
-        <EmptyState title="Reserva no encontrada" />
+        {loading ? (
+          <div className="card" style={{ display: 'grid', gap: 10 }} aria-busy="true">
+            <span className="skeleton" style={{ width: '35%', height: 24 }} />
+            <span className="skeleton" style={{ width: '80%' }} />
+            <span className="skeleton" style={{ width: '60%' }} />
+          </div>
+        ) : error && error.status !== 404 ? (
+          <QueryError error={error} onRetry={refetch} />
+        ) : (
+          <EmptyState title="Reserva no encontrada" />
+        )}
       </>
     );
   }
 
-  const persona = state.personas.find((p) => p.id === r.persona_id);
-  const tienda = state.tiendas.find((t) => t.id === r.tienda_id);
+  const persona = r.nombre_cliente ? { id: r.persona_id, nombre: r.nombre_cliente } : null;
+  const tienda = r.nombre_tienda ? { id: r.tienda_id, nombre: r.nombre_tienda } : null;
   const identidad = r.timeline.find((s) => s.key === 'identidad');
+  // Cancelar: solo si no hay pago enviado. Disputas y evidencia aún no existen en el backend (solo mock).
   const puedeCancelar = r.estado === 'reservada' && can(user.rol, 'reserva.cancelar');
-  const puedeDisputa = ['pagada', 'entregada', 'vencida'].includes(r.estado) && can(user.rol, 'retiro.disputa');
-  const puedeEvidencia = r.estado === 'en_disputa' && can(user.rol, 'retiro.disputa');
+  const puedeDisputa = USE_MOCK && ['pagada', 'entregada', 'vencida'].includes(r.estado) && can(user.rol, 'retiro.disputa');
+  const puedeEvidencia = USE_MOCK && r.estado === 'en_disputa' && can(user.rol, 'retiro.disputa');
   const puedeResolver =
-    r.estado === 'en_disputa' && r.disputa?.estado === 'abierta' && can(user.rol, 'retiro.resolver_disputa');
+    USE_MOCK && r.estado === 'en_disputa' && r.disputa?.estado === 'abierta' && can(user.rol, 'retiro.resolver_disputa');
   const conCobros = r.total_cop > 0;
+  const enlacesOp = opEnlaces(r.open_payments);
+  const enlace = (x, ruta) => (x.id ? <Link to={`/${ruta}/${x.id}`}>{x.nombre}</Link> : x.nombre);
 
   return (
     <>
@@ -165,8 +186,25 @@ export default function RetiroDetail() {
       <div className="grid-2">
         <div className="stack">
           <Card title="Línea de tiempo en Open Payments" hint="Identificadores para auditar cada paso">
-            <Timeline steps={r.timeline} />
+            {r.timeline.length === 0 ? <p className="muted">Sin pasos registrados.</p> : <Timeline steps={r.timeline} />}
           </Card>
+
+          {enlacesOp.length > 0 && (
+            <Card title="Recursos en Open Payments" hint="URLs para auditar el cobro, la cotización y el pago">
+              <ul className="list">
+                {enlacesOp.map(([clave, url]) => (
+                  <li key={clave}>
+                    <div className="grow">
+                      <span className="title" style={{ fontSize: 14 }}>{opLabel(clave)}</span>
+                      <a className="sub mono" href={url} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all' }}>
+                        {url}
+                      </a>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card title="Actividad" hint="Avisos del agente, acciones del panel y vencimientos">
             {r.eventos.length === 0 ? (
@@ -237,8 +275,8 @@ export default function RetiroDetail() {
           <Card title="Resumen">
             <DefList
               items={[
-                ['Persona', persona && <Link key="p" to={`/personas/${persona.id}`}>{persona.nombre}</Link>],
-                ['Tienda', tienda && <Link key="t" to={`/tiendas/${tienda.id}`}>{tienda.nombre}</Link>],
+                ['Persona', persona && <span key="p">{enlace(persona, 'personas')}</span>],
+                ['Tienda', tienda && <span key="t">{enlace(tienda, 'tiendas')}</span>],
                 ['Monto', <span key="m" className="mono">{cop(r.monto_cop)}</span>],
                 ['Riesgo', r.riesgo_ok ? <span key="r" className="badge badge--success">Permitido</span> : <span key="r" className="badge badge--neutral">Pendiente</span>],
                 [
@@ -253,7 +291,9 @@ export default function RetiroDetail() {
                 ],
                 ['Código de entrega', <span key="c" className="mono muted">••••</span>],
                 ['Creada', dateTime(r.creada_en)],
-                ['Vence', dateTime(r.vence_en)],
+                r.vence_en && ['Vence', dateTime(r.vence_en)],
+                r.pagada_en && ['Pagada', dateTime(r.pagada_en)],
+                r.entregado_en && ['Entregada', dateTime(r.entregado_en)],
               ]}
             />
           </Card>
@@ -262,8 +302,8 @@ export default function RetiroDetail() {
             {conCobros ? (
               <DefList
                 items={[
-                  ['Efectivo libre al reservar', <span key="l" className="mono">{cop(r.efectivo_libre_al_reservar_cop)}</span>],
-                  ['Tasa del tendero', <span key="t" className="mono">{pctFmt(r.tasa_tendero)}</span>],
+                  r.efectivo_libre_al_reservar_cop !== null && ['Efectivo libre al reservar', <span key="l" className="mono">{cop(r.efectivo_libre_al_reservar_cop)}</span>],
+                  r.tasa_tendero !== null && ['Tasa del tendero', <span key="t" className="mono">{pctFmt(r.tasa_tendero)}</span>],
                   ['Comisión tendero', <span key="ct" className="mono">{cop(r.comision_tendero_cop)}</span>],
                   ['1 % Caja de Barrio', <span key="cp" className="mono">{cop(r.comision_plataforma_cop)}</span>],
                   ['Total a debitar', <strong key="tot" className="mono">{cop(r.total_cop)}</strong>],

@@ -37,6 +37,8 @@ export const admin = {
   revelarDato: (tipo, id, campo) => actions.revelarDato(actor, tipo, id, campo),
 
   // POST /admin/tiendas/{id}/estado|nivel
+  // POST /admin/tenderos
+  registrarTendero: (datos) => call(() => actions.registrarTendero(actor, datos)),
   suspenderTienda: (id, motivo) => call(() => actions.suspenderTienda(actor, id, motivo)),
   activarTienda: (id, motivo) => call(() => actions.activarTienda(actor, id, motivo)),
   cambiarNivelTienda: (id, nivel, motivo) => call(() => actions.cambiarNivelTienda(actor, id, nivel, motivo)),
@@ -114,12 +116,15 @@ export function selectResumen(state, user) {
 }
 
 // GET /admin/personas
-export function selectPersonas(state, { estado, q } = {}) {
-  let rows = state.personas;
+export const selectPersonas = (state, f) => filtrarPersonas(state.personas, f);
+
+// Filtro y orden en memoria (lo usan el mock y el modo real: el backend devuelve todo).
+export function filtrarPersonas(personas, { estado, q } = {}) {
+  let rows = personas;
   if (estado && estado !== 'todas') rows = rows.filter((p) => p.estado_registro === estado);
   if (q) {
     const n = norm(q);
-    rows = rows.filter((p) => norm(p.nombre).includes(n) || p.cedula.replace(/\D/g, '').endsWith(n.replace(/\D/g, '') || '§') || p.id.includes(n));
+    rows = rows.filter((p) => norm(p.nombre).includes(n) || String(p.cedula || '').replace(/\D/g, '').endsWith(n.replace(/\D/g, '') || '§') || p.id.includes(n));
   }
   const byDateAsc = (a, b) => new Date(a.creada_en) - new Date(b.creada_en);
   const byDateDesc = (a, b) => new Date(b.creada_en) - new Date(a.creada_en);
@@ -131,14 +136,19 @@ export function selectPersonas(state, { estado, q } = {}) {
   });
 }
 
-export const countPersonasPorEstado = (state) =>
-  state.personas.reduce((acc, p) => ({ ...acc, [p.estado_registro]: (acc[p.estado_registro] || 0) + 1 }), {});
+export const countPersonasPorEstado = (state) => contarPersonasPorEstado(state.personas);
+
+export const contarPersonasPorEstado = (personas) =>
+  personas.reduce((acc, p) => ({ ...acc, [p.estado_registro]: (acc[p.estado_registro] || 0) + 1 }), {});
 
 // GET /admin/tiendas
-export function selectTiendas(state, user, { nivel, estado, barrio, reputacion, q } = {}) {
-  let rows = tiendasVisibles(state, user);
+export const selectTiendas = (state, user, f) => filtrarTiendas(tiendasVisibles(state, user), f);
+
+export function filtrarTiendas(tiendas, { nivel, estado, barrio, reputacion, q } = {}) {
+  let rows = tiendas;
   if (nivel && nivel !== 'todos') rows = rows.filter((t) => t.nivel === nivel);
-  if (estado && estado !== 'todos') rows = rows.filter((t) => t.estado === estado);
+  // `inactiva` (backend) es lo mismo que `suspendida`.
+  if (estado && estado !== 'todos') rows = rows.filter((t) => t.estado === estado || (estado === 'suspendida' && t.estado === 'inactiva'));
   if (barrio && barrio !== 'todos') rows = rows.filter((t) => t.barrio === barrio);
   if (reputacion === 'alta') rows = rows.filter((t) => t.reputacion >= 4.5);
   if (reputacion === 'media') rows = rows.filter((t) => t.reputacion >= 4 && t.reputacion < 4.5);
@@ -150,20 +160,25 @@ export function selectTiendas(state, user, { nivel, estado, barrio, reputacion, 
   return rows;
 }
 
-// GET /admin/retiros
-export function selectReservas(state, { estado, q } = {}) {
-  let rows = [...state.reservas].sort((a, b) => new Date(b.creada_en) - new Date(a.creada_en));
+// GET /admin/retiros · el backend ya trae `nombre_cliente` y `nombre_tienda`; el mock los une aquí.
+export const reservaConNombres = (state, r) => ({
+  ...r,
+  nombre_cliente: state.personas.find((x) => x.id === r.persona_id)?.nombre ?? null,
+  nombre_tienda: state.tiendas.find((x) => x.id === r.tienda_id)?.nombre ?? null,
+});
+
+// Filtro y orden en memoria sobre filas con nombres (mock y modo real).
+export function filtrarRetiros(retiros, { estado, q } = {}) {
+  let rows = [...retiros].sort((a, b) => new Date(b.creada_en) - new Date(a.creada_en));
   if (estado && estado !== 'todas') rows = rows.filter((r) => r.estado === estado);
   if (q) {
     const n = norm(q);
-    rows = rows.filter((r) => {
-      const p = state.personas.find((x) => x.id === r.persona_id);
-      const t = state.tiendas.find((x) => x.id === r.tienda_id);
-      return norm(r.id).includes(n) || norm(p?.nombre).includes(n) || norm(t?.nombre).includes(n);
-    });
+    rows = rows.filter((r) => norm(r.id).includes(n) || norm(r.nombre_cliente).includes(n) || norm(r.nombre_tienda).includes(n));
   }
   return rows;
 }
+
+export const selectReservas = (state, f) => filtrarRetiros(state.reservas.map((r) => reservaConNombres(state, r)), f);
 
 // GET /admin/solicitudes-tendero
 export const solicitudPendiente = (x) => x.estado === 'en_revision';
@@ -183,9 +198,23 @@ export function selectSolicitudes(state, { estado = 'en_revision', q } = {}) {
   return rows.sort((a, b) => new Date(a.creada_en) - new Date(b.creada_en));
 }
 
-// GET /admin/alertas
-export function selectAlertas(state, { estado = 'pendientes', regla } = {}) {
-  let rows = [...state.alertas].sort((a, b) => new Date(b.creada_en) - new Date(a.creada_en));
+// GET /admin/alertas · el backend trae `nombre_persona` y `nombre_tienda`; el mock los une aquí.
+export const alertaConNombres = (state, a) => {
+  const p = a.persona_id && state.personas.find((x) => x.id === a.persona_id);
+  const t = a.tienda_id && state.tiendas.find((x) => x.id === a.tienda_id);
+  return {
+    ...a,
+    nombre_persona: p?.nombre ?? null,
+    nombre_tienda: t?.nombre ?? null,
+    // Solo el mock puede bloquear/suspender desde la alerta.
+    bloqueable: p ? p.estado_registro === 'aprobada' : Boolean(t && t.estado !== 'suspendida'),
+  };
+};
+
+export const selectAlertas = (state, f) => filtrarAlertas(state.alertas.map((a) => alertaConNombres(state, a)), f);
+
+export function filtrarAlertas(alertas, { estado = 'pendientes', regla } = {}) {
+  let rows = [...alertas].sort((a, b) => new Date(b.creada_en) - new Date(a.creada_en));
   if (estado === 'pendientes') rows = rows.filter(alertaPendiente);
   else if (estado === 'cerradas') rows = rows.filter((a) => !alertaPendiente(a));
   else if (estado !== 'todas') rows = rows.filter((a) => a.estado === estado);
@@ -210,8 +239,10 @@ export function exportRowsUiaf(state) {
 }
 
 // GET /admin/auditoria
-export function selectAuditoria(state, { actor: a, accion, entidad, q } = {}) {
-  let rows = state.auditoria;
+export const selectAuditoria = (state, f) => filtrarAuditoria(state.auditoria, f);
+
+export function filtrarAuditoria(auditoria, { actor: a, accion, entidad, q } = {}) {
+  let rows = auditoria;
   if (a && a !== 'todos') rows = rows.filter((r) => r.actor === a);
   if (accion && accion !== 'todas') rows = rows.filter((r) => r.accion === accion);
   if (entidad && entidad !== 'todas') rows = rows.filter((r) => r.entidad_tipo === entidad);
@@ -224,3 +255,27 @@ export function selectAuditoria(state, { actor: a, accion, entidad, q } = {}) {
 
 // GET /admin/aprobaciones
 export const selectAprobacionesPendientes = (state) => state.aprobaciones.filter((a) => a.estado === 'pendiente');
+
+// GET /admin/saldos · billeteras virtuales (tabla `movimientos`) de personas y tiendas.
+export function selectSaldos(state) {
+  const ultimo = (b) => b.movimientos[0]?.ts ?? null;
+  const filas = [
+    ...state.personas
+      .filter((p) => p.billetera?.wallet_address)
+      .map((p) => ({
+        wallet_address: p.billetera.wallet_address,
+        duenio: { tipo: 'persona', id: p.id, nombre: p.nombre },
+        saldo_cop: p.billetera.saldo_cop,
+        ultimo_movimiento_en: ultimo(p.billetera),
+      })),
+    ...state.tiendas
+      .filter((t) => t.billetera?.wallet_address)
+      .map((t) => ({
+        wallet_address: t.billetera.wallet_address,
+        duenio: { tipo: 'tienda', id: t.id, nombre: t.nombre },
+        saldo_cop: t.billetera.saldo_cop,
+        ultimo_movimiento_en: ultimo(t.billetera),
+      })),
+  ];
+  return filas;
+}

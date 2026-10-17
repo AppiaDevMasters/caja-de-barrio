@@ -8,7 +8,12 @@ const tienda = (t) => ({
   wallet_ok: true,
   redId: null,
   reclamos: 0,
+  didit: { liveness: 'aprobada', score: 0.95, session_id: null, en: null },
+  verifik: { valida: true, nombre_coincide: true, nombre_registrado: null, error: null },
+  motivo_revision: null,
   ...t,
+  // Billetera virtual de la tienda: saldo 0 hasta que lleguen los pagos.
+  billetera: { wallet_address: t.wallet, saldo_cop: 0, movimientos: [] },
 });
 
 export const TIENDAS = [

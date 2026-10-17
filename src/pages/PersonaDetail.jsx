@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Ban, Check, ExternalLink, LockOpen, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin } from '../api';
+import { USE_MOCK, admin, getPersona, useAdminQuery } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { TOPE_MAX_PERSONA } from '../data/mock/config';
 import { REGLAS_ALERTA } from '../data/mock/alertas';
@@ -11,8 +11,9 @@ import { POLITICAS_VERSION } from '../data/mock/personas';
 import { cop, dateTime, maskCedula, maskPhone, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';
 import MaskField from '../components/ui/MaskField';
+import BilleteraCard from '../components/ui/BilleteraCard';
 import StatusBadge from '../components/ui/StatusBadge';
-import { BackLink, Card, DefList, EmptyState, Notice } from '../components/ui/primitives';
+import { BackLink, Card, DefList, EmptyState, Notice, QueryError } from '../components/ui/primitives';
 
 const tri = (v, yes, no, pending = 'Pendiente') =>
   v === null || v === undefined ? (
@@ -28,37 +29,50 @@ export default function PersonaDetail() {
   const { user } = useAuth();
   const state = useStoreState();
   const [dlg, setDlg] = useState(null);
-  const p = state.personas.find((x) => x.id === id);
+  const { data: p, loading, error, refetch } = useAdminQuery(`persona:${id}`, () => getPersona(id));
 
   if (!p) {
     return (
       <>
         <BackLink to="/personas">Personas</BackLink>
-        <EmptyState title="Persona no encontrada" />
+        {loading ? (
+          <div className="card" style={{ display: 'grid', gap: 10 }} aria-busy="true">
+            <span className="skeleton" style={{ width: '35%', height: 24 }} />
+            <span className="skeleton" style={{ width: '80%' }} />
+            <span className="skeleton" style={{ width: '60%' }} />
+          </div>
+        ) : error && error.status !== 404 ? (
+          <QueryError error={error} onRetry={refetch} />
+        ) : (
+          <EmptyState title="Persona no encontrada" />
+        )}
       </>
     );
   }
 
   const est = p.estado_registro;
   const umbral = state.config.umbrales.diditScore;
-  const retiros = state.reservas.filter((r) => r.persona_id === p.id);
-  const alertas = state.alertas.filter((a) => a.persona_id === p.id);
-  const desbloqueoPendiente = state.aprobaciones.find(
-    (a) => a.estado === 'pendiente' && a.entidad.id === p.id
-  );
-  const compartido = state.personas.filter((x) => x.id !== p.id && x.dispositivo === p.dispositivo);
+  // Retiros, alertas y cuatro ojos todavía salen del mock: en modo real no se muestran para no mezclar datos.
+  const retiros = USE_MOCK ? state.reservas.filter((r) => r.persona_id === p.id) : [];
+  const alertas = USE_MOCK ? state.alertas.filter((a) => a.persona_id === p.id) : [];
+  const desbloqueoPendiente = USE_MOCK
+    ? state.aprobaciones.find((a) => a.estado === 'pendiente' && a.entidad.id === p.id)
+    : null;
+  const compartido =
+    USE_MOCK && p.dispositivo ? state.personas.filter((x) => x.id !== p.id && x.dispositivo === p.dispositivo) : [];
+  const enRevision = est === 'revision_manual' || est === 'verificando';
 
   const vigente = p.verificacion_vigente_hasta && new Date(p.verificacion_vigente_hasta) > new Date();
   const abrir = (cfg) => setDlg(cfg);
 
   const acciones = [];
-  if (est === 'revision_manual') {
+  if (enRevision) {
     if (can(user.rol, 'persona.aprobar'))
       acciones.push(
         <button key="ap" className="btn btn--primary" onClick={() =>
           abrir({
             title: 'Aprobar registro',
-            description: `${p.nombre} podrá hacer retiros dentro de su nivel y tope.`,
+            description: `${p.nombre} queda aprobada: se crea su billetera (si no la tiene), se le abona la carga inicial de la demo y se le avisa por WhatsApp.`,
             confirmLabel: 'Aprobar',
             successMsg: 'Registro aprobado.',
             run: ({ motivo }) => admin.aprobarPersona(p.id, motivo),
@@ -67,7 +81,7 @@ export default function PersonaDetail() {
           <Check size={16} /> Aprobar
         </button>
       );
-    if (can(user.rol, 'persona.reintento'))
+    if (est === 'revision_manual' && can(user.rol, 'persona.reintento'))
       acciones.push(
         <button key="re" className="btn" onClick={() =>
           abrir({
@@ -150,7 +164,7 @@ export default function PersonaDetail() {
       {est === 'revision_manual' && (
         <div style={{ marginBottom: 16 }}>
           <Notice tone="warning">
-            <strong>Enviada a revisión manual:</strong> {p.motivo_revision}
+            <strong>Enviada a revisión manual:</strong> {p.motivo_revision || 'Sin motivo registrado.'}
           </Notice>
         </div>
       )}
@@ -162,7 +176,7 @@ export default function PersonaDetail() {
           </Notice>
         </div>
       )}
-      {acciones.length === 0 && !['aprobada', 'bloqueada'].includes(est) && est !== 'revision_manual' && (
+      {acciones.length === 0 && !['aprobada', 'bloqueada'].includes(est) && !enRevision && (
         <div style={{ marginBottom: 16 }}>
           <Notice>
             {est === 'rechazada'
@@ -203,6 +217,7 @@ export default function PersonaDetail() {
                     ['Cédula válida', tri(p.verifik.valida, 'Válida', 'No válida')],
                     ['Nombre', tri(p.verifik.nombre_coincide, 'Coincide', 'No coincide')],
                     p.verifik.nombre_registrado && ['Según Verifik', <span key="n" className="mono">{p.verifik.nombre_registrado}</span>],
+                    p.verifik.error && ['Error de Verifik', <span key="e" className="badge badge--warning">{p.verifik.error}</span>],
                   ]}
                 />
               </div>
@@ -233,6 +248,7 @@ export default function PersonaDetail() {
                         </span>
                       ),
                     ],
+                    p.didit.en && ['Fecha', dateTime(p.didit.en)],
                     p.didit_ref && [
                       'Sesión',
                       <a key="s" href={`https://business.didit.me/sessions/${p.didit_ref}`} target="_blank" rel="noopener noreferrer">
@@ -275,7 +291,7 @@ export default function PersonaDetail() {
                   ),
                 ],
                 ['Aceptadas el', p.politicas_aceptadas_en ? dateTime(p.politicas_aceptadas_en) : '—'],
-                [
+                USE_MOCK && [
                   'Cupo aprobado en la wallet',
                   p.cupo_aprobado_cop ? (
                     <span key="cu" className="mono">
@@ -285,7 +301,7 @@ export default function PersonaDetail() {
                     <span className="muted">Aún sin aprobar</span>
                   ),
                 ],
-                [
+                USE_MOCK && [
                   'Verificación de identidad',
                   vigente ? (
                     <span key="vv" className="badge badge--success">Vigente hasta {dateTime(p.verificacion_vigente_hasta)}</span>
@@ -297,11 +313,16 @@ export default function PersonaDetail() {
                 ],
               ]}
             />
-            <p className="help" style={{ marginTop: 10 }}>
-              La verificación de Didit vale 30 minutos desde cada retiro: cada nuevo retiro la repite.
-            </p>
+            {USE_MOCK && (
+              <p className="help" style={{ marginTop: 10 }}>
+                La verificación de Didit vale 30 minutos desde cada retiro: cada nuevo retiro la repite.
+              </p>
+            )}
           </Card>
 
+          <BilleteraCard billetera={p.billetera} />
+
+          {USE_MOCK && (
           <Card title="Aprobaciones en el chat" hint="La persona escribe «APROBAR» antes de que se mueva dinero">
             {p.aprobaciones.length === 0 ? (
               <p className="muted">Todavía no ha aprobado ningún pago.</p>
@@ -322,6 +343,9 @@ export default function PersonaDetail() {
             )}
           </Card>
 
+          )}
+
+          {USE_MOCK && (
           <Card title="Historial de retiros" hint={`${retiros.length} en total`}>
             {retiros.length === 0 ? (
               <p className="muted">Sin retiros todavía.</p>
@@ -344,9 +368,11 @@ export default function PersonaDetail() {
               </ul>
             )}
           </Card>
+          )}
         </div>
 
         <div className="stack">
+          {p.nivel && (
           <Card
             title="Nivel y tope"
             actions={
@@ -377,7 +403,9 @@ export default function PersonaDetail() {
               ]}
             />
           </Card>
+          )}
 
+          {USE_MOCK && (
           <Card title="Alertas" hint={`${alertas.length} vinculadas`}>
             {alertas.length === 0 ? (
               <p className="muted">Sin alertas.</p>
@@ -397,6 +425,7 @@ export default function PersonaDetail() {
               </ul>
             )}
           </Card>
+          )}
 
           <Card title="Historial de revisiones" hint="Estado, autor y motivo">
             {p.historial.length === 0 ? (
@@ -407,14 +436,16 @@ export default function PersonaDetail() {
                   <li key={i} style={{ alignItems: 'flex-start' }}>
                     <div className="grow">
                       <span className="title" style={{ fontSize: 14 }}>
-                        {h.estado_anterior} → {h.estado_nuevo}
+                        {h.estado_anterior ? `${h.estado_anterior} → ${h.estado_nuevo}` : h.accion}
                       </span>
                       <span className="sub">
                         {h.actor} · {dateTime(h.ts)}
                       </span>
-                      <span className="sub" style={{ display: 'block', marginTop: 4 }}>
-                        «{h.motivo}»
-                      </span>
+                      {h.motivo && (
+                        <span className="sub" style={{ display: 'block', marginTop: 4 }}>
+                          «{h.motivo}»
+                        </span>
+                      )}
                       {h.notificacion && (
                         <span className="sub" style={{ display: 'block', marginTop: 4 }}>
                           WhatsApp: «{h.notificacion}»

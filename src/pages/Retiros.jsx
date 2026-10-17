@@ -1,20 +1,18 @@
 import { useSearchParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
-import { useStoreState } from '../data/mockStore';
-import { selectReservas } from '../api';
+import { filtrarRetiros, getRetiros, USE_MOCK, useAdminQuery } from '../api';
 import { cop, relative } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';
-import { Chips, PageHeader, SearchInput, useSimulatedLoad } from '../components/ui/primitives';
+import { Chips, PageHeader, QueryError, SearchInput } from '../components/ui/primitives';
 
 const bool = (v, yes, no) => (
   <span className={`badge badge--${v ? 'success' : 'neutral'}`}>{v ? yes : no}</span>
 );
 
 export default function Retiros() {
-  const state = useStoreState();
   const [params, setParams] = useSearchParams();
-  const loading = useSimulatedLoad();
+  const { data, loading, error, refetch } = useAdminQuery('retiros', () => getRetiros());
   const estado = params.get('estado') || 'todas';
   const q = params.get('q') || '';
 
@@ -25,10 +23,11 @@ export default function Retiros() {
     setParams(next, { replace: true });
   };
 
-  const rows = selectReservas(state, { estado, q });
-  const count = (e) => state.reservas.filter((r) => r.estado === e).length;
+  const base = data || [];
+  const rows = filtrarRetiros(base, { estado, q });
+  const count = (e) => base.filter((r) => r.estado === e).length;
   const options = [
-    { value: 'todas', label: 'Todas', count: state.reservas.length },
+    { value: 'todas', label: 'Todas', count: base.length },
     { value: 'reservada', label: 'Reservadas', count: count('reservada') },
     { value: 'pagada', label: 'Pagadas', count: count('pagada') },
     { value: 'entregada', label: 'Entregadas', count: count('entregada') },
@@ -37,13 +36,10 @@ export default function Retiros() {
     { value: 'cancelada', label: 'Canceladas', count: count('cancelada') },
   ];
 
-  const persona = (id) => state.personas.find((p) => p.id === id);
-  const tienda = (id) => state.tiendas.find((t) => t.id === id);
-
   const columns = [
     { key: 'id', header: 'Reserva', primary: true, render: (r) => <span className="mono">{r.id}</span> },
-    { key: 'persona', header: 'Persona', render: (r) => persona(r.persona_id)?.nombre },
-    { key: 'tienda', header: 'Tienda', render: (r) => tienda(r.tienda_id)?.nombre },
+    { key: 'persona', header: 'Persona', render: (r) => r.nombre_cliente || '—' },
+    { key: 'tienda', header: 'Tienda', render: (r) => r.nombre_tienda || '—' },
     { key: 'monto', header: 'Monto', className: 'num', render: (r) => cop(r.monto_cop) },
     { key: 'com_tendero', header: 'Comisión tendero', className: 'num', render: (r) => (r.total_cop ? cop(r.comision_tendero_cop) : '—') },
     { key: 'com_caja', header: '1 % Caja de Barrio', className: 'num', render: (r) => (r.total_cop ? cop(r.comision_plataforma_cop) : '—') },
@@ -68,11 +64,12 @@ export default function Retiros() {
         title="Reservas y retiros"
         subtitle="Cada retiro con su línea de tiempo en Open Payments."
         actions={
-          <span className="status-chip" title="Datos de demostración">
-            <span className="dot" aria-hidden="true" /> En vivo (mock)
+          <span className="status-chip" title={USE_MOCK ? 'Datos de demostración' : 'Datos en vivo del backend'}>
+            <span className="dot" aria-hidden="true" /> {USE_MOCK ? 'En vivo (mock)' : 'En vivo'}
           </span>
         }
       />
+      <QueryError error={error} onRetry={refetch} />
       <div className="filters">
         <SearchInput value={q} onChange={(v) => set('q', v)} placeholder="Buscar por reserva, persona o tienda" />
         <Chips label="Filtrar por estado" options={options} value={estado} onChange={(v) => set('estado', v)} />

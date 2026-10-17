@@ -3,13 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowUpCircle, Ban, Check, ExternalLink, MapPin, SlidersHorizontal, Star } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
-import { admin, efectivoLibre } from '../api';
+import { USE_MOCK, admin, efectivoLibre, getTienda, useAdminQuery } from '../api';
 import { useStoreState } from '../data/mockStore';
 import { cop, dateTime, maskCedula, relative } from '../utils/format';
 import ActionDialog from '../components/ui/ActionDialog';
 import MaskField from '../components/ui/MaskField';
+import BilleteraCard from '../components/ui/BilleteraCard';
 import StatusBadge from '../components/ui/StatusBadge';
-import { BackLink, Card, DefList, EmptyState, Forbidden, Notice } from '../components/ui/primitives';
+import { BackLink, Card, DefList, EmptyState, Forbidden, Notice, QueryError } from '../components/ui/primitives';
 
 const yesNo = (v, y, n) => (
   <span className={`badge badge--${v ? 'success' : 'warning'}`}>{v ? y : n}</span>
@@ -20,13 +21,23 @@ export default function TiendaDetail() {
   const { user } = useAuth();
   const state = useStoreState();
   const [dlg, setDlg] = useState(null);
-  const t = state.tiendas.find((x) => x.id === id);
+  const { data: t, loading, error, refetch } = useAdminQuery(`tienda:${id}`, () => getTienda(id));
 
   if (!t) {
     return (
       <>
         <BackLink to="/tiendas">Tiendas</BackLink>
-        <EmptyState title="Tienda no encontrada" />
+        {loading ? (
+          <div className="card" style={{ display: 'grid', gap: 10 }} aria-busy="true">
+            <span className="skeleton" style={{ width: '35%', height: 24 }} />
+            <span className="skeleton" style={{ width: '80%' }} />
+            <span className="skeleton" style={{ width: '60%' }} />
+          </div>
+        ) : error && error.status !== 404 ? (
+          <QueryError error={error} onRetry={refetch} />
+        ) : (
+          <EmptyState title="Tienda no encontrada" />
+        )}
       </>
     );
   }
@@ -34,9 +45,11 @@ export default function TiendaDetail() {
 
   const libre = efectivoLibre(t);
   const pctReservado = t.efectivo_publicado_cop ? Math.round((t.efectivo_reservado_cop / t.efectivo_publicado_cop) * 100) : 0;
-  const enCurso = state.reservas.filter((r) => r.tienda_id === t.id && ['reservada', 'pagada'].includes(r.estado));
-  const aprobacion = state.aprobaciones.find((a) => a.estado === 'pendiente' && a.entidad.id === t.id);
-  const topeMax = state.config.topes[t.nivel].retiro;
+  // Reservas y cuatro ojos todavía salen del mock: en modo real no se muestran.
+  const enCurso = USE_MOCK ? state.reservas.filter((r) => r.tienda_id === t.id && ['reservada', 'pagada'].includes(r.estado)) : [];
+  const aprobacion = USE_MOCK ? state.aprobaciones.find((a) => a.estado === 'pendiente' && a.entidad.id === t.id) : null;
+  const topeMax = state.config.topes[t.nivel]?.retiro ?? t.tope_retiro_cop;
+  const pendienteVerif = t.estado === 'pendiente_verificacion';
   const editable = user.rol !== 'aliado';
 
   const acciones = [];
@@ -71,7 +84,9 @@ export default function TiendaDetail() {
               title: riesgo ? 'Solicitar reactivación' : 'Activar tienda',
               description: riesgo
                 ? 'La tienda fue bloqueada por riesgo: la reactivación requiere cuatro ojos. Tu solicitud cuenta como primera firma.'
-                : 'La tienda podrá recibir retiros desde este momento.',
+                : pendienteVerif
+                  ? 'Aprobación manual del tendero: úsala solo si revisaste su identidad. Se le avisa por WhatsApp que su tienda quedó activa.'
+                  : 'La tienda podrá recibir retiros desde este momento.',
               confirmLabel: riesgo ? 'Enviar a segunda aprobación' : 'Activar',
               successMsg: (r) => (r.aprobacion ? `Solicitud ${r.aprobacion} creada. Falta la segunda firma.` : 'Tienda activada.'),
               run: ({ motivo }) => admin.activarTienda(t.id, motivo),
@@ -145,7 +160,7 @@ export default function TiendaDetail() {
             {t.nombre} <StatusBadge kind="tienda" value={t.estado} /> <StatusBadge kind="nivel" value={t.nivel} />
           </h1>
           <p>
-            <span className="mono">{t.id}</span> · {t.barrio} · alta {relative(t.creada_en)}
+            <span className="mono">{t.id}</span> · {t.barrio || t.direccion} · alta {relative(t.creada_en)}
           </p>
         </div>
         {acciones.length > 0 && <div className="page-actions">{acciones}</div>}
@@ -156,6 +171,15 @@ export default function TiendaDetail() {
           <Notice>
             Solicitud {aprobacion.id} en espera de segunda firma (iniciada por {aprobacion.firmas[0].nombre}). Regla de cuatro
             ojos.
+          </Notice>
+        </div>
+      )}
+      {pendienteVerif && (
+        <div style={{ marginBottom: 16 }}>
+          <Notice tone="warning">
+            <strong>Pendiente de verificación:</strong>{' '}
+            {t.motivo_revision || 'El tendero debe escribir al agente para hacer su verificación de identidad (Didit).'} Si Verifik no
+            confirma, aquí se puede activar a mano.
           </Notice>
         </div>
       )}
@@ -186,6 +210,7 @@ export default function TiendaDetail() {
             </p>
           </Card>
 
+          {USE_MOCK && (
           <Card title="Reservas en curso" hint={`${enCurso.length} activas`}>
             {enCurso.length === 0 ? (
               <p className="muted">No hay reservas en curso.</p>
@@ -210,6 +235,7 @@ export default function TiendaDetail() {
               </ul>
             )}
           </Card>
+          )}
 
           <Card title="Dueño y verificaciones">
             <DefList
@@ -217,7 +243,9 @@ export default function TiendaDetail() {
                 ['Dueño', t.dueno.nombre],
                 [
                   'Documento',
-                  user.rol === 'aliado' ? (
+                  !t.dueno.cedula ? (
+                    <span className="muted">Aún sin verificar</span>
+                  ) : user.rol === 'aliado' ? (
                     <span className="mono muted">{maskCedula(t.dueno.cedula)}</span>
                   ) : (
                     <MaskField masked={maskCedula(t.dueno.cedula)} entity="tienda" entityId={t.id} field="cedula" />
@@ -225,6 +253,29 @@ export default function TiendaDetail() {
                 ],
                 ['Identidad', yesNo(t.dueno.verificado, 'Verificado', 'Pendiente')],
                 ['RUT / registro mercantil', t.nivel === 'basico' ? <span className="muted">No exigido en nivel Básico</span> : yesNo(t.rut, 'Cargado', 'Falta')],
+                [
+                  'Didit · cara',
+                  t.didit.liveness === 'aprobada' ? (
+                    <span key="dd" className="badge badge--success">
+                      Aprobada{t.didit.score !== null && t.didit.score !== undefined ? ` · ${Number(t.didit.score).toFixed(2)}` : ''}
+                    </span>
+                  ) : t.didit.liveness === 'fallida' ? (
+                    <span key="dd" className="badge badge--danger">Fallida</span>
+                  ) : (
+                    <span key="dd" className="badge badge--neutral">Pendiente</span>
+                  ),
+                ],
+                [
+                  'Verifik · cédula',
+                  t.verifik.valida === null || t.verifik.valida === undefined ? (
+                    <span key="vf" className="badge badge--neutral">{t.verifik.error ? 'Sin respuesta' : 'Pendiente'}</span>
+                  ) : t.verifik.valida && t.verifik.nombre_coincide ? (
+                    <span key="vf" className="badge badge--success">Válida · nombre coincide</span>
+                  ) : (
+                    <span key="vf" className="badge badge--danger">{t.verifik.valida ? 'Nombre no coincide' : 'No válida'}</span>
+                  ),
+                ],
+                t.verifik.error && ['Error de Verifik', <span key="ve" className="badge badge--warning">{t.verifik.error}</span>],
                 ['Ubicación en el mapa', yesNo(t.ubicacion_verificada, 'Verificada', 'Por verificar')],
                 ['Wallet en Open Payments', yesNo(t.wallet_ok, 'Responde correctamente', 'Sin validar')],
               ]}
@@ -255,6 +306,7 @@ export default function TiendaDetail() {
             />
           </Card>
 
+          {t.lat !== null && t.lat !== undefined && t.lon !== null && t.lon !== undefined && (
           <Card title="Ubicación">
             <div className="notice" style={{ background: 'var(--c-surface-2)', color: 'var(--c-text)' }}>
               <MapPin size={18} aria-hidden="true" />
@@ -271,13 +323,12 @@ export default function TiendaDetail() {
               </a>
             </p>
           </Card>
+          )}
 
-          <Card title="Wallet">
-            <span className="mono" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{t.wallet}</span>
-            <p className="help muted" style={{ fontSize: 12, marginTop: 6 }}>
-              Dirección pública. Las llaves de Open Payments nunca pasan por el panel.
-            </p>
-          </Card>
+          <BilleteraCard billetera={t.billetera} />
+          <p className="help muted" style={{ fontSize: 12 }}>
+            Dirección pública. Las llaves de Open Payments nunca pasan por el panel.
+          </p>
 
           <p className="muted" style={{ fontSize: 12 }}>
             Registrada el {dateTime(t.creada_en)}

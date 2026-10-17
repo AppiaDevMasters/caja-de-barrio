@@ -3,13 +3,12 @@ import { motion } from 'motion/react';
 import { ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { canAccess, ROLE_LABEL } from '../auth/permissions';
-import { useStoreState } from '../data/mockStore';
-import { alertaPendiente, efectivoLibre, selectResumen, tiendasVisibles } from '../api';
+import { alertaPendiente, efectivoLibre, getAlertas, getAuditoria, getPersonas, getResumen, getTiendas, useAdminQuery } from '../api';
 import { REGLAS_ALERTA } from '../data/mock/alertas';
 import { cop, relative } from '../utils/format';
 import KpiCard from '../components/ui/KpiCard';
 import StatusBadge from '../components/ui/StatusBadge';
-import { Card, EmptyState, PageHeader, useSimulatedLoad } from '../components/ui/primitives';
+import { Card, EmptyState, PageHeader, QueryError } from '../components/ui/primitives';
 
 function Greeting({ user }) {
   const h = new Date().getHours();
@@ -18,7 +17,8 @@ function Greeting({ user }) {
 }
 
 function HourBars({ data }) {
-  const max = Math.max(...data.map((d) => d.n));
+  if (!data || data.length === 0) return <p className="muted">Sin retiros registrados hoy.</p>;
+  const max = Math.max(1, ...data.map((d) => d.n));
   return (
     <div className="bars" role="img" aria-label={`Retiros por hora. Pico de ${max} retiros.`}>
       {data.map((d, i) => (
@@ -39,19 +39,28 @@ function HourBars({ data }) {
 
 export default function Inicio() {
   const { user } = useAuth();
-  const state = useStoreState();
-  const loading = useSimulatedLoad(300);
-  const resumen = selectResumen(state, user);
-  const kpis = resumen.kpis;
   const esAliado = user.rol === 'aliado';
+  const verAlertas = canAccess(user.rol, 'alertas');
+  const verAuditoria = canAccess(user.rol, 'auditoria');
 
-  const revision = state.personas
+  // Cada bloque pide solo lo que el rol puede ver (el backend responde 403 al resto).
+  const resumenQ = useAdminQuery(`resumen:${user.rol}`, () => getResumen(user));
+  const personasQ = useAdminQuery(`personas:inicio:${user.rol}`, () => (esAliado ? [] : getPersonas()));
+  const alertasQ = useAdminQuery(`alertas:inicio:${user.rol}`, () => (verAlertas ? getAlertas() : []));
+  const auditoriaQ = useAdminQuery(`auditoria:inicio:${user.rol}`, () => (verAuditoria ? getAuditoria() : []));
+  const redQ = useAdminQuery(`tiendas:inicio:${user.rol}`, () => (esAliado ? getTiendas(user) : []));
+
+  const loading = resumenQ.loading;
+  const kpis = resumenQ.data?.kpis || [];
+  const porHora = resumenQ.data?.porHora;
+
+  const revision = [...(personasQ.data || [])]
     .filter((p) => p.estado_registro === 'revision_manual')
     .sort((a, b) => new Date(a.creada_en) - new Date(b.creada_en))
     .slice(0, 4);
-  const alertas = state.alertas.filter(alertaPendiente).slice(0, 4);
-  const actividad = state.auditoria.slice(0, 5);
-  const miRed = tiendasVisibles(state, user);
+  const alertas = (alertasQ.data || []).filter(alertaPendiente).slice(0, 4);
+  const actividad = [...(auditoriaQ.data || [])].sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 5);
+  const miRed = redQ.data || [];
 
   return (
     <>
@@ -60,9 +69,10 @@ export default function Inicio() {
         subtitle={`${ROLE_LABEL[user.rol]} · Indicadores del día en Medellín`}
       />
 
+      <QueryError error={resumenQ.error} onRetry={resumenQ.refetch} />
       <div className="kpi-grid" aria-busy={loading}>
         {loading
-          ? Array.from({ length: kpis.length }).map((_, i) => (
+          ? Array.from({ length: 6 }).map((_, i) => (
               <div className="kpi" key={i}>
                 <span className="skeleton" style={{ width: '60%' }} />
                 <span className="skeleton" style={{ width: '40%', height: 28 }} />
@@ -78,7 +88,7 @@ export default function Inicio() {
         <div className="grid-2">
           <div className="stack">
             <Card title="Retiros completados por hora" hint="Muestra del día · el pico se resalta">
-              <HourBars data={resumen.porHora} />
+              <HourBars data={porHora} />
             </Card>
 
             <Card

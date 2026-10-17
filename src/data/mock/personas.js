@@ -3,6 +3,7 @@ import { daysAgo, minutesAgo } from './time';
 // Datos ficticios. Cédulas y teléfonos completos solo existen aquí para simular
 // la acción auditable "revelar"; la UI los muestra enmascarados por defecto.
 export const POLITICAS_VERSION = 'v1-2026-10';
+export const SALDO_INICIAL_DEMO_COP = 1000000;
 
 const CUPO_POR_NIVEL = { 'Nivel 1': 600000, 'Nivel 2': 1000000 };
 
@@ -13,7 +14,7 @@ const persona = (p) => {
     nivel: 'Nivel 1',
     telefono_unico: true,
     listas: { restrictivas: false, pep: false, detalle: null },
-    verifik: { valida: true, nombre_coincide: true, nombre_registrado: null },
+    verifik: { valida: true, nombre_coincide: true, nombre_registrado: null, error: null },
     didit: { liveness: 'aprobada', score: 0.94 },
     motivo_revision: null,
     historial: [],
@@ -26,6 +27,21 @@ const persona = (p) => {
     politicas_aceptadas_en: base.politicas_version ? base.politicas_aceptadas_en ?? base.creada_en : null,
     cupo_aprobado_cop: base.cupo_aprobado_cop ?? (conCupo ? CUPO_POR_NIVEL[base.nivel] : null),
     cupo_aprobado_en: conCupo ? base.cupo_aprobado_en ?? base.verificada_en ?? base.creada_en : null,
+    // Billetera virtual (tabla `movimientos`): la carga inicial de la demo llega al aprobar.
+    billetera: {
+      wallet_address: base.wallet,
+      saldo_cop: conCupo ? SALDO_INICIAL_DEMO_COP : 0,
+      movimientos: conCupo
+        ? [
+            {
+              ts: base.verificada_en ?? base.creada_en,
+              tipo: 'carga_inicial',
+              monto_cop: SALDO_INICIAL_DEMO_COP,
+              referencia: `aprobacion:${base.id}`,
+            },
+          ]
+        : [],
+    },
   };
 };
 

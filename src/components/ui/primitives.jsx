@@ -127,6 +127,23 @@ export function Notice({ tone, icon: Icon = Info, children }) {
   );
 }
 
+/** Error de una lectura (`useAdminQuery`): muestra el mensaje del contrato y permite reintentar. */
+export function QueryError({ error, onRetry }) {
+  if (!error) return null;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Notice tone="danger" icon={TriangleAlert}>
+        <strong>No se pudo cargar la información.</strong> {error.message}{' '}
+        {onRetry && (
+          <button type="button" className="btn btn--sm" onClick={onRetry} style={{ marginLeft: 6 }}>
+            Reintentar
+          </button>
+        )}
+      </Notice>
+    </div>
+  );
+}
+
 export function Forbidden() {
   return (
     <EmptyState icon={TriangleAlert} title="No tienes acceso a esta sección">
@@ -151,8 +168,8 @@ export function Timeline({ steps }) {
   return (
     <ol className="timeline">
       {steps.map((s) => {
-        const Icon = STEP_ICON[s.estado];
-        const cls = { ok: 'is-ok', pendiente: 'is-pending', fallido: 'is-fail', omitido: 'is-skip' }[s.estado];
+        const Icon = STEP_ICON[s.estado] || Circle;
+        const cls = { ok: 'is-ok', pendiente: 'is-pending', fallido: 'is-fail', omitido: 'is-skip' }[s.estado] || 'is-pending';
         return (
           <li key={s.key} className={`tl-item ${cls}`}>
             <span className="tl-dot">

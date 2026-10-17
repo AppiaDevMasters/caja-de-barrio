@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { admin } from '../../api';
+import { USE_MOCK, admin } from '../../api';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
 import { useToast } from './Toast';
@@ -13,7 +13,8 @@ export default function MaskField({ masked, entity, entityId, field }) {
   const { user } = useAuth();
   const toast = useToast();
   const [full, setFull] = useState(null);
-  const allowed = can(user.rol, 'persona.revelar');
+  // En modo real `/revelar` aún no existe en el backend (v3 §3.2): solo se muestra enmascarado.
+  const allowed = USE_MOCK && can(user.rol, 'persona.revelar');
 
   useEffect(() => {
     if (!full) return undefined;

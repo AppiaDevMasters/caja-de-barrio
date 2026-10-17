@@ -1,6 +1,20 @@
 import { actions, getState, resetStore } from './mockStore';
 import { can } from '../auth/permissions';
 import { findByCredentials } from './mock/users';
+import {
+  selectSaldos,
+  selectReservas,
+  selectAlertas,
+  selectAuditoria,
+  filtrarPersonas,
+  filtrarTiendas,
+  filtrarRetiros,
+  filtrarAlertas,
+  filtrarAuditoria,
+  reservaConNombres,
+  alertaConNombres,
+} from '../api/admin';
+import { adaptAlerta, adaptAuditoria, adaptPersona, adaptRetiro, adaptTienda, lista } from '../api/adapt';
 
 const actor = (username) => {
   const { password, ...u } = findByCredentials(username, {
@@ -188,4 +202,178 @@ test('solicitudes: rechazar exige motivo y rango de cumplimiento', () => {
   expect(() => actions.rechazarSolicitud(actor('cumplimiento'), 'sol-102', 'corto')).toThrow(/motivo/i);
   actions.rechazarSolicitud(actor('cumplimiento'), 'sol-102', MOTIVO);
   expect(getState().solicitudes.find((x) => x.id === 'sol-102').estado).toBe('rechazada');
+});
+
+/* ---------- v3 ---------- */
+
+const DATOS_TENDERO = {
+  nombre_tienda: 'Tienda La Esperanza',
+  direccion: 'Cra 50 #90-10, Aranjuez',
+  lat: 6.277,
+  lon: -75.56,
+  nivel: 'basico',
+  whatsapp_tendero: '573009990001',
+  nombre_tendero: 'Mario Duque Soto',
+  motivo: MOTIVO,
+};
+
+test('registrar tendero crea la tienda pendiente de verificación con billetera en cero y audita', () => {
+  const r = actions.registrarTendero(actor('cumplimiento'), DATOS_TENDERO);
+  const s = getState();
+  const t = s.tiendas.find((x) => x.id === r.id);
+  expect(t).toMatchObject({
+    estado: 'pendiente_verificacion',
+    nivel: 'basico',
+    tendero_whatsapp: '573009990001',
+    billetera: { saldo_cop: 0, movimientos: [] },
+  });
+  expect(t.billetera.wallet_address).toMatch(/^\$ilp\./);
+  expect(s.auditoria[0]).toMatchObject({ accion: 'registrar_tendero', entidad_id: r.id });
+  expect(r.notificacion).toMatch(/Mario/);
+});
+
+test('registrar tendero valida permiso, motivo, nivel, coordenadas y WhatsApp repetido', () => {
+  expect(() => actions.registrarTendero(actor('soporte'), DATOS_TENDERO)).toThrow(/permiso/i);
+  const c = actor('cumplimiento');
+  expect(() => actions.registrarTendero(c, { ...DATOS_TENDERO, motivo: 'corto' })).toThrow(/motivo/i);
+  expect(() => actions.registrarTendero(c, { ...DATOS_TENDERO, nivel: 'platino' })).toThrow(/nivel/i);
+  expect(() => actions.registrarTendero(c, { ...DATOS_TENDERO, lat: 'x' })).toThrow(/latitud/i);
+  actions.registrarTendero(c, DATOS_TENDERO);
+  expect(() => actions.registrarTendero(c, DATOS_TENDERO)).toThrow(/ya es tendero/i);
+});
+
+test('activar a mano una tienda pendiente de verificación la deja activa', () => {
+  const r = actions.registrarTendero(actor('cumplimiento'), DATOS_TENDERO);
+  actions.activarTienda(actor('cumplimiento'), r.id, MOTIVO);
+  expect(getState().tiendas.find((t) => t.id === r.id).estado).toBe('activa');
+});
+
+test('aprobar una persona en revisión crea la billetera y la carga inicial una sola vez', () => {
+  expect(getState().personas.find((p) => p.id === 'p-003').billetera.saldo_cop).toBe(0);
+  actions.aprobarPersona(actor('cumplimiento'), 'p-003', MOTIVO);
+  const b = getState().personas.find((p) => p.id === 'p-003').billetera;
+  expect(b.saldo_cop).toBe(1000000);
+  expect(b.movimientos).toHaveLength(1);
+  expect(b.movimientos[0]).toMatchObject({ tipo: 'carga_inicial', referencia: 'aprobacion:p-003' });
+});
+
+test('se puede aprobar o rechazar a quien sigue en verificando', () => {
+  actions.aprobarPersona(actor('cumplimiento'), 'p-006', MOTIVO);
+  expect(getState().personas.find((p) => p.id === 'p-006').estado_registro).toBe('aprobada');
+  expect(() => actions.rechazarPersona(actor('cumplimiento'), 'p-001', MOTIVO)).toThrow(/revisión manual o verificando/i);
+});
+
+test('los saldos salen de las billeteras de personas y tiendas', () => {
+  const filas = selectSaldos(getState());
+  const laura = filas.find((f) => f.duenio.id === 'p-001');
+  expect(laura).toMatchObject({ duenio: { tipo: 'persona' }, saldo_cop: 1000000 });
+  expect(filas.find((f) => f.duenio.id === 't-001')).toMatchObject({ duenio: { tipo: 'tienda' }, saldo_cop: 0 });
+  expect(filas.some((f) => f.duenio.id === 'p-007')).toBe(false); // sin billetera todavía
+});
+
+test('los adaptadores rellenan lo que el backend aún no envía', () => {
+  expect(lista({ personas: [{ id: 'per_1' }] }, 'personas')).toHaveLength(1);
+  expect(lista([{ id: 1 }, { id: 2 }], 'personas')).toHaveLength(2);
+  expect(lista({ items: [{ id: 1 }], total: 1 }, 'personas')).toHaveLength(1);
+  const p = adaptPersona({
+    id: 'per_1',
+    nombre: 'JUAN PEREZ',
+    cedula: '****3456',
+    estado_registro: 'revision_manual',
+    didit: { liveness: 'aprobada', score: 0.97, session_id: 'did_1' },
+    verifik: { valida: null, error: 'El registro civil no respondió (token vencido)' },
+  });
+  expect(p.didit_ref).toBe('did_1');
+  expect(p.billetera).toMatchObject({ saldo_cop: 0, movimientos: [] });
+  expect(p.historial).toEqual([]);
+  const t = adaptTienda({ id: 'tie_1', nombre: 'X', estado: 'pendiente_verificacion' });
+  expect(t.dueno.nombre).toBe('—');
+  expect(t.billetera.movimientos).toEqual([]);
+  // las listas del backend (cédula ya enmascarada) también se filtran sin romperse
+  expect(filtrarPersonas([p], { estado: 'revision_manual', q: '3456' })).toHaveLength(1);
+  expect(filtrarTiendas([t], { estado: 'pendiente_verificacion' })).toHaveLength(1);
+});
+
+/* ---------- v3: retiros, alertas y auditoría del backend real ---------- */
+
+const STEPS_BACKEND = [
+  { key: 'identidad', label: 'Identidad', estado: 'ok', ts: '2026-10-17T05:00:00Z', ref: 'did_1', detalle: null },
+  { key: 'reserva', label: 'Reserva', estado: 'ok', ts: '2026-10-17T05:01:00Z', ref: 'R-1', detalle: null },
+  { key: 'riesgo', label: 'Riesgo', estado: 'ok', ts: '2026-10-17T05:01:30Z', ref: null, detalle: null },
+  { key: 'pago', label: 'Pago', estado: 'pendiente', ts: null, ref: null, detalle: null },
+];
+
+test('adaptRetiro conserva el timeline del backend y tolera remesa/disputa nulas', () => {
+  const r = adaptRetiro({
+    id: 'R-1',
+    estado: 'pagada',
+    nombre_tienda: 'Tienda de Magno',
+    nombre_cliente: 'Cristian',
+    monto_cop: 100000,
+    comisiones: { tendero_cop: 3000, plataforma_cop: 1000 },
+    timeline: STEPS_BACKEND,
+    eventos: [{ tipo: 'aviso_pago', actor: 'agente', detalle: { ok: true } }],
+    open_payments: { incoming_payment_url: 'https://ilp.test/incoming/1' },
+    remesa: null,
+    disputa: null,
+  });
+  expect(r.timeline).toBe(STEPS_BACKEND);
+  expect(r).toMatchObject({ comision_tendero_cop: 3000, comision_plataforma_cop: 1000, total_cop: 104000, face_match_ok: true, riesgo_ok: true });
+  expect(r.remesa).toBeNull();
+  expect(r.disputa).toBeNull();
+  expect(r.cancelada_motivo).toBeNull();
+  expect(typeof r.eventos[0].detalle).toBe('string');
+  // un detalle mínimo no rompe la ficha
+  const minimo = adaptRetiro({ id: 'R-2', estado: 'cancelada' });
+  expect(minimo).toMatchObject({ timeline: [], eventos: [], total_cop: 0, face_match_ok: false, open_payments: null });
+});
+
+test('retiros: el mock une nombres y el filtro funciona igual que con el backend', () => {
+  const filas = getState().reservas.map((r) => reservaConNombres(getState(), r));
+  expect(filas.every((r) => r.nombre_cliente && r.nombre_tienda)).toBe(true);
+  expect(selectReservas(getState(), {})).toHaveLength(filas.length);
+  const entregadas = filtrarRetiros(filas, { estado: 'entregada' });
+  expect(entregadas.length).toBeGreaterThan(0);
+  expect(entregadas.every((r) => r.estado === 'entregada')).toBe(true);
+  const porNombre = filtrarRetiros(filas, { q: filas[0].nombre_cliente.split(' ')[0].toLowerCase() });
+  expect(porNombre.length).toBeGreaterThan(0);
+});
+
+test('adaptAlerta solo maneja abierta/resuelta y apaga UIAF y bloqueo', () => {
+  const a = adaptAlerta({ id: 'AL-1', regla: 'pitufeo', estado: 'resuelta', nombre_persona: 'Cristian', uiaf: true });
+  expect(a).toMatchObject({ uiaf: false, bloqueable: false, severidad: null, persona_id: null, nombre_tienda: null });
+  const abierta = adaptAlerta({ id: 'AL-2', regla: 'pitufeo', estado: 'abierta', creada_en: '2026-10-17T05:00:00Z' });
+  expect(filtrarAlertas([a, abierta], { estado: 'pendientes' })).toHaveLength(1);
+  expect(filtrarAlertas([a, abierta], { estado: 'cerradas' })).toHaveLength(1);
+  expect(filtrarAlertas([a, abierta], { estado: 'todas' })).toHaveLength(2);
+  expect(selectAlertas(getState(), { estado: 'todas' }).every((x) => 'nombre_persona' in x)).toBe(true);
+  expect(alertaConNombres(getState(), getState().alertas[0])).toHaveProperty('bloqueable');
+});
+
+test('adaptAuditoria rellena registro, rol e IP que el backend no manda', () => {
+  const a = adaptAuditoria({
+    id: 'a1',
+    ts: '2026-10-17T05:00:00Z',
+    actor: 'cumplimiento',
+    accion: 'aprobar_persona',
+    entidad_tipo: 'persona',
+    entidad_id: 'per_1',
+    motivo: 'Verifik vencido, cédula revisada a mano.',
+    antes: { estado: 'revision_manual' },
+    despues: 'aprobada',
+    detalle: 'Magno Duque',
+  });
+  expect(a).toMatchObject({ rol: null, ip: null, entidad_nombre: 'Magno Duque', despues: 'aprobada' });
+  expect(typeof a.antes).toBe('string');
+  const sinDetalle = adaptAuditoria({ id: 'a2', actor: 'super', accion: 'x', entidad_id: 7 });
+  expect(sinDetalle).toMatchObject({ entidad_id: '7', entidad_nombre: '7', motivo: '', antes: '' });
+  expect(filtrarAuditoria([a, sinDetalle], { actor: 'cumplimiento' })).toHaveLength(1);
+  expect(filtrarAuditoria([a, sinDetalle], { q: 'magno' })).toHaveLength(1);
+  expect(selectAuditoria(getState(), {})).toHaveLength(getState().auditoria.length);
+});
+
+test('la tienda inactiva del backend se filtra como suspendida', () => {
+  const t = adaptTienda({ id: 'tie_9', nombre: 'Z', estado: 'inactiva' });
+  expect(filtrarTiendas([t], { estado: 'suspendida' })).toHaveLength(1);
+  expect(filtrarTiendas([t], { estado: 'activa' })).toHaveLength(0);
 });

@@ -1,12 +1,13 @@
 /**
  * Cliente real de `/admin/*` (panel-api en Go). Expone los mismos nombres que la
  * fachada mock (`admin.*`) y agrega las lecturas `get*` del mapeo de
- * z3312/panel-de-control-v2.md §5.2. El backend escribe la auditoría: aquí solo se envía el `motivo`.
+ * z3312/panel-de-control-v2.md §5.2 y z3312/panel-de-control-v3.md §3. El backend escribe la auditoría: aquí solo se envía el `motivo`.
  *
- * Estado actual: las páginas siguen leyendo del store mock (selectores síncronos); este módulo deja
- * cableadas las escrituras y las lecturas asíncronas para cuando el backend esté vivo.
+ * Inicio, Personas, Tiendas, Saldos, Retiros, Alertas y Auditoría leen de aquí (vía `useAdminQuery`);
+ * Solicitudes, aprobaciones y configuración siguen en mock (el backend aún no las tiene).
  */
 import { http } from './http';
+import { adaptAlerta, adaptAuditoria, adaptPersona, adaptRetiro, adaptSaldos, adaptTienda, lista } from './adapt';
 
 const e = encodeURIComponent;
 const un = (r) => r?.valor ?? r;
@@ -26,6 +27,9 @@ export const admin = {
   solicitarDesbloqueoPersona: (id, motivo) => http.post(`/admin/personas/${e(id)}/desbloquear`, { motivo }),
   ajustarTopePersona: (id, valor, motivo) => http.put(`/admin/personas/${e(id)}/tope`, { valor: Number(valor), motivo }),
   revelarDato: async (tipo, id, campo) => un(await http.post(`/admin/${tipo === 'persona' ? 'personas' : tipo === 'solicitud' ? 'solicitudes-tendero' : 'tiendas'}/${e(id)}/revelar`, { campo })),
+
+  // POST /admin/tenderos → ficha de la tienda en `pendiente_verificacion`
+  registrarTendero: async (datos) => adaptTienda(await http.post('/admin/tenderos', datos)),
 
   suspenderTienda: (id, motivo) => http.post(`/admin/tiendas/${e(id)}/estado`, { estado: 'suspendida', motivo }),
   activarTienda: (id, motivo) => http.post(`/admin/tiendas/${e(id)}/estado`, { estado: 'activa', motivo }),
@@ -55,16 +59,20 @@ export const admin = {
 const LISTA = { pagina: 1, por_pagina: 500 };
 
 export const getResumen = () => http.get('/admin/resumen');
-export const getPersonas = (f) => http.get('/admin/personas', { ...LISTA, ...f });
-export const getPersona = (id) => http.get(`/admin/personas/${e(id)}`);
-export const getTiendas = (f) => http.get('/admin/tiendas', { ...LISTA, ...f });
-export const getTienda = (id) => http.get(`/admin/tiendas/${e(id)}`);
-export const getRetiros = (f) => http.get('/admin/retiros', { ...LISTA, ...f });
-export const getRetiro = (id) => http.get(`/admin/retiros/${e(id)}`);
+export const getPersonas = async (f) => lista(await http.get('/admin/personas', f), 'personas').map(adaptPersona);
+export const getPersona = async (id) => adaptPersona(await http.get(`/admin/personas/${e(id)}`));
+export const getTiendas = async (f) => lista(await http.get('/admin/tiendas', f), 'tiendas').map(adaptTienda);
+export const getTienda = async (id) => adaptTienda(await http.get(`/admin/tiendas/${e(id)}`));
+// GET /admin/saldos → lista de billeteras · GET /admin/saldos?wallet= → saldo y movimientos de una billetera
+export const getSaldos = async () => adaptSaldos(await http.get('/admin/saldos'));
+export const getSaldoWallet = (wallet) => http.get('/admin/saldos', { wallet });
+export const getRetiros = async (f) => lista(await http.get('/admin/retiros', f), 'retiros').map(adaptRetiro);
+export const getRetiro = async (id) => adaptRetiro(await http.get(`/admin/retiros/${e(id)}`));
 export const getSolicitudes = (f) => http.get('/admin/solicitudes-tendero', { ...LISTA, ...f });
 export const getSolicitud = (id) => http.get(`/admin/solicitudes-tendero/${e(id)}`);
-export const getAlertas = (f) => http.get('/admin/alertas', { ...LISTA, ...f });
+// `estado`: pendientes | cerradas | todas. El panel pide `todas` y filtra en memoria.
+export const getAlertas = async (f) => lista(await http.get('/admin/alertas', f), 'alertas').map(adaptAlerta);
 export const getAlertasExport = () => http.get('/admin/alertas/exportar');
 export const getAprobaciones = () => http.get('/admin/aprobaciones', { estado: 'pendiente' });
-export const getAuditoria = (f) => http.get('/admin/auditoria', { ...LISTA, ...f });
+export const getAuditoria = async (f) => lista(await http.get('/admin/auditoria', f), 'auditoria').map(adaptAuditoria);
 export const getConfiguracion = () => http.get('/admin/configuracion');

@@ -1,24 +1,25 @@
 import { useSearchParams } from 'react-router-dom';
 import { Lock } from 'lucide-react';
-import { selectAuditoria } from '../api';
-import { useStoreState } from '../data/mockStore';
+import { filtrarAuditoria, getAuditoria, useAdminQuery } from '../api';
 import { ROLE_LABEL } from '../auth/permissions';
 import { dateTime } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
-import { Notice, PageHeader, SearchInput, Select, useSimulatedLoad } from '../components/ui/primitives';
+import { Notice, PageHeader, QueryError, SearchInput, Select } from '../components/ui/primitives';
 
 const ENTIDADES = {
   persona: 'Persona',
   tienda: 'Tienda',
   solicitud: 'Solicitud de tendero',
   reserva: 'Reserva',
+  retiro: 'Retiro',
   alerta: 'Alerta',
   configuracion: 'Configuración',
 };
 
+const entidadLabel = (tipo) => ENTIDADES[tipo] || tipo;
+
 export default function Auditoria() {
-  const state = useStoreState();
-  const loading = useSimulatedLoad();
+  const { data, loading, error, refetch } = useAdminQuery('auditoria', () => getAuditoria());
   const [params, setParams] = useSearchParams();
   const f = {
     actor: params.get('actor') || 'todos',
@@ -33,9 +34,11 @@ export default function Auditoria() {
     setParams(next, { replace: true });
   };
 
-  const actores = [...new Set(state.auditoria.map((a) => a.actor))].sort();
-  const acciones = [...new Set(state.auditoria.map((a) => a.accion))].sort();
-  const rows = selectAuditoria(state, f);
+  const base = data || [];
+  const actores = [...new Set(base.map((a) => a.actor).filter(Boolean))].sort();
+  const acciones = [...new Set(base.map((a) => a.accion).filter(Boolean))].sort();
+  const entidades = [...new Set([...Object.keys(ENTIDADES), ...base.map((a) => a.entidad_tipo).filter(Boolean)])];
+  const rows = filtrarAuditoria(base, f);
 
   const columns = [
     { key: 'ts', header: 'Fecha', render: (a) => <span style={{ whiteSpace: 'nowrap' }}>{dateTime(a.ts)}</span> },
@@ -45,7 +48,7 @@ export default function Auditoria() {
       render: (a) => (
         <>
           {a.actor}
-          <span className="cell-sub">{ROLE_LABEL[a.rol]}</span>
+          {a.rol && <span className="cell-sub">{ROLE_LABEL[a.rol]}</span>}
         </>
       ),
     },
@@ -57,7 +60,7 @@ export default function Auditoria() {
         <>
           {a.entidad_nombre}
           <span className="cell-sub mono">
-            {ENTIDADES[a.entidad_tipo]} · {a.entidad_id.length > 24 ? `${a.entidad_id.slice(0, 24)}…` : a.entidad_id}
+            {entidadLabel(a.entidad_tipo)} · {a.entidad_id.length > 24 ? `${a.entidad_id.slice(0, 24)}…` : a.entidad_id}
           </span>
         </>
       ),
@@ -85,7 +88,7 @@ export default function Auditoria() {
       header: 'Motivo',
       render: (a) => <span style={{ display: 'block', minWidth: 240, maxWidth: 380 }}>{a.motivo}</span>,
     },
-    { key: 'ip', header: 'IP', render: (a) => <span className="mono muted">{a.ip}</span> },
+    { key: 'ip', header: 'IP', render: (a) => <span className="mono muted">{a.ip || '—'}</span> },
   ];
 
   return (
@@ -96,6 +99,7 @@ export default function Auditoria() {
           Registro de solo lectura e inmutable: no se puede editar ni borrar, ni siquiera por el superadministrador.
         </Notice>
       </div>
+      <QueryError error={error} onRetry={refetch} />
       <div className="filters">
         <SearchInput value={f.q} onChange={(v) => set('q', v)} placeholder="Buscar por registro, ID o motivo" />
         <Select
@@ -114,7 +118,7 @@ export default function Auditoria() {
           label="Tipo de registro"
           value={f.entidad}
           onChange={(v) => set('entidad', v)}
-          options={[{ value: 'todas', label: 'Todos los registros' }, ...Object.entries(ENTIDADES).map(([value, label]) => ({ value, label }))]}
+          options={[{ value: 'todas', label: 'Todos los registros' }, ...entidades.map((value) => ({ value, label: entidadLabel(value) }))]}
         />
       </div>
       <DataTable
@@ -122,7 +126,7 @@ export default function Auditoria() {
         rows={rows}
         loading={loading}
         emptyTitle="Sin eventos con estos filtros"
-        footer={`${rows.length} de ${state.auditoria.length} eventos`}
+        footer={`${rows.length} de ${base.length} eventos`}
       />
     </>
   );

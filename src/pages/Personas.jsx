@@ -1,16 +1,14 @@
 import { useSearchParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
-import { useStoreState } from '../data/mockStore';
-import { countPersonasPorEstado, selectPersonas } from '../api';
+import { contarPersonasPorEstado, filtrarPersonas, getPersonas, useAdminQuery } from '../api';
 import { maskCedula, relative } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';
-import { Chips, PageHeader, SearchInput, useSimulatedLoad } from '../components/ui/primitives';
+import { Chips, PageHeader, QueryError, SearchInput } from '../components/ui/primitives';
 
 export default function Personas() {
-  const state = useStoreState();
   const [params, setParams] = useSearchParams();
-  const loading = useSimulatedLoad();
+  const { data, loading, error, refetch } = useAdminQuery('personas', () => getPersonas());
   const estado = params.get('estado') || 'todas';
   const q = params.get('q') || '';
 
@@ -21,13 +19,14 @@ export default function Personas() {
     setParams(next, { replace: true });
   };
 
-  const counts = countPersonasPorEstado(state);
-  const rows = selectPersonas(state, { estado, q });
+  const todas = data || [];
+  const counts = contarPersonasPorEstado(todas);
+  const rows = filtrarPersonas(todas, { estado, q });
   const cola = estado === 'revision_manual';
 
   const options = [
-    { value: 'todas', label: 'Todas', count: state.personas.length },
-    { value: 'revision_manual', label: 'Cola de revisión', count: counts.revision_manual || 0 },
+    { value: 'revision_manual', label: 'Revisión manual', count: counts.revision_manual || 0 },
+    { value: 'todas', label: 'Todas', count: todas.length },
     { value: 'verificando', label: 'Verificando', count: counts.verificando || 0 },
     { value: 'pendiente', label: 'Pendientes', count: counts.pendiente || 0 },
     { value: 'aprobada', label: 'Aprobadas', count: counts.aprobada || 0 },
@@ -48,13 +47,13 @@ export default function Personas() {
       ),
     },
     { key: 'estado', header: 'Estado', render: (p) => <StatusBadge kind="persona" value={p.estado_registro} /> },
-    { key: 'nivel', header: 'Nivel', render: (p) => p.nivel },
+    { key: 'nivel', header: 'Nivel', render: (p) => p.nivel || '—' },
     {
       key: 'motivo',
       header: cola ? 'Motivo de revisión' : 'Último movimiento',
       render: (p) => (
         <span className="muted" style={{ display: 'block', maxWidth: 420, minWidth: 200 }}>
-          {p.motivo_revision || p.historial[0]?.motivo || 'Sin movimientos'}
+          {p.motivo_revision || p.historial?.[0]?.motivo || 'Sin movimientos'}
         </span>
       ),
     },
@@ -68,6 +67,7 @@ export default function Personas() {
         title="Personas"
         subtitle="Cada registro pasa por un estado de verificación con autor y motivo."
       />
+      <QueryError error={error} onRetry={refetch} />
       <div className="filters">
         <SearchInput value={q} onChange={(v) => set('q', v)} placeholder="Buscar por nombre o últimos dígitos de cédula" />
         <Chips label="Filtrar por estado" options={options} value={estado} onChange={(v) => set('estado', v)} />

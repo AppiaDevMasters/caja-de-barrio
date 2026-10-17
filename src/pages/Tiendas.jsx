@@ -1,18 +1,17 @@
-import { useSearchParams } from 'react-router-dom';
-import { ChevronRight, Download, Star } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ChevronRight, Download, Star, UserPlus } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { useStoreState } from '../data/mockStore';
-import { efectivoLibre, selectTiendas, tiendasVisibles } from '../api';
+import { can } from '../auth/permissions';
+import { efectivoLibre, filtrarTiendas, getTiendas, useAdminQuery } from '../api';
 import { cop, downloadCSV } from '../utils/format';
 import DataTable from '../components/ui/DataTable';
 import StatusBadge from '../components/ui/StatusBadge';
-import { PageHeader, SearchInput, Select, useSimulatedLoad } from '../components/ui/primitives';
+import { PageHeader, QueryError, SearchInput, Select } from '../components/ui/primitives';
 
 export default function Tiendas() {
   const { user } = useAuth();
-  const state = useStoreState();
   const [params, setParams] = useSearchParams();
-  const loading = useSimulatedLoad();
+  const { data, loading, error, refetch } = useAdminQuery(`tiendas:${user.rol}`, () => getTiendas(user));
   const f = {
     nivel: params.get('nivel') || 'todos',
     estado: params.get('estado') || 'todos',
@@ -28,9 +27,9 @@ export default function Tiendas() {
     setParams(next, { replace: true });
   };
 
-  const base = tiendasVisibles(state, user);
-  const barrios = [...new Set(base.map((t) => t.barrio))].sort();
-  const rows = selectTiendas(state, user, f);
+  const base = data || [];
+  const barrios = [...new Set(base.map((t) => t.barrio).filter(Boolean))].sort();
+  const rows = filtrarTiendas(base, f);
 
   const exportar = () =>
     downloadCSV(
@@ -57,7 +56,7 @@ export default function Tiendas() {
       render: (t) => (
         <>
           {t.nombre}
-          <span className="cell-sub">{t.barrio}</span>
+          <span className="cell-sub">{t.barrio || t.direccion}</span>
         </>
       ),
     },
@@ -88,11 +87,19 @@ export default function Tiendas() {
         title="Tiendas"
         subtitle={user.rol === 'aliado' ? 'Tiendas de tu red · solo lectura y exportación.' : 'Red de tiendas que entregan efectivo en el barrio.'}
         actions={
-          <button className="btn" onClick={exportar} disabled={!rows.length}>
-            <Download size={16} /> Exportar CSV
-          </button>
+          <>
+            {can(user.rol, 'tienda.alta') && (
+              <Link className="btn btn--primary" to="/tiendas/nueva">
+                <UserPlus size={16} /> Registrar tendero
+              </Link>
+            )}
+            <button className="btn" onClick={exportar} disabled={!rows.length}>
+              <Download size={16} /> Exportar CSV
+            </button>
+          </>
         }
       />
+      <QueryError error={error} onRetry={refetch} />
       <div className="filters">
         <SearchInput value={f.q} onChange={(v) => set('q', v)} placeholder="Buscar tienda o barrio" />
         <Select
@@ -113,6 +120,8 @@ export default function Tiendas() {
           options={[
             { value: 'todos', label: 'Todos los estados' },
             { value: 'activa', label: 'Activa' },
+            { value: 'pendiente_verificacion', label: 'Pendiente de verificación' },
+            { value: 'revision_manual', label: 'Revisión manual' },
             { value: 'suspendida', label: 'Suspendida' },
           ]}
         />

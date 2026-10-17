@@ -11,6 +11,8 @@ import Personas from './pages/Personas';
 import PersonaDetail from './pages/PersonaDetail';
 import Tiendas from './pages/Tiendas';
 import TiendaDetail from './pages/TiendaDetail';
+import RegistrarTendero from './pages/RegistrarTendero';
+import Saldos from './pages/Saldos';
 import Retiros from './pages/Retiros';
 import RetiroDetail from './pages/RetiroDetail';
 import Solicitudes from './pages/Solicitudes';
@@ -53,11 +55,15 @@ export default function App() {
                 </Route>
                 <Route element={<Guard route="tiendas" />}>
                   <Route path="tiendas" element={<Tiendas />} />
+                  <Route path="tiendas/nueva" element={<RegistrarTendero />} />
                   <Route path="tiendas/:id" element={<TiendaDetail />} />
                 </Route>
                 <Route element={<Guard route="retiros" />}>
                   <Route path="retiros" element={<Retiros />} />
                   <Route path="retiros/:id" element={<RetiroDetail />} />
+                </Route>
+                <Route element={<Guard route="saldos" />}>
+                  <Route path="saldos" element={<Saldos />} />
                 </Route>
                 <Route element={<Guard route="alertas" />}>
                   <Route path="alertas" element={<Alertas />} />

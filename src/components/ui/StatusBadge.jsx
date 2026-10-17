@@ -10,7 +10,10 @@ const MAP = {
   tienda: {
     activa: ['Activa', 'success'],
     suspendida: ['Suspendida', 'danger'],
+    inactiva: ['Suspendida', 'danger'], // el backend llama `inactiva` a la tienda suspendida
+    revision_manual: ['Revisión manual', 'warning'],
     pendiente: ['En alta', 'warning'],
+    pendiente_verificacion: ['Pendiente de verificación', 'warning'],
   },
   nivel: {
     basico: ['Básico', 'neutral'],
@@ -39,6 +42,7 @@ const MAP = {
   },
   alerta: {
     abierta: ['Abierta', 'danger'],
+    resuelta: ['Resuelta', 'success'],
     escalada: ['Escalada', 'warning'],
     descartada: ['Descartada', 'neutral'],
     bloqueada: ['Bloqueo aplicado', 'success'],

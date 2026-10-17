@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { can } from '../auth/permissions';
-import { PERSONAS } from './mock/personas';
+import { PERSONAS, POLITICAS_VERSION, SALDO_INICIAL_DEMO_COP } from './mock/personas';
 import { TIENDAS } from './mock/tiendas';
 import { RESERVAS } from './mock/reservas';
 import { ALERTAS } from './mock/alertas';
@@ -254,16 +254,45 @@ export const actions = {
     guard(actor, 'persona.aprobar');
     const m = needMotivo(motivo);
     const p = getPersona(id);
-    if (p.estado_registro !== 'revision_manual') throw new Error('Solo se aprueban registros en revisión manual.');
-    commit(setPersonaEstado(state, actor, p, 'aprobada', m, 'aprobar'));
-    return { notificacion: NOTIF.aprobada };
+    if (!['revision_manual', 'verificando'].includes(p.estado_registro)) {
+      throw new Error('Solo se aprueban registros en revisión manual o verificando.');
+    }
+    let next = setPersonaEstado(state, actor, p, 'aprobada', m, 'aprobar');
+    // Como el backend: si no tiene billetera se crea, y la carga inicial es idempotente por referencia.
+    const ref = `aprobacion:${p.id}`;
+    next = {
+      ...next,
+      personas: upd(next.personas, p.id, (x) => {
+        const yaCargada = x.billetera.movimientos.some((mv) => mv.referencia === ref);
+        const wallet = x.wallet || `$ilp.interledger-test.dev/${x.id}-cajadebarrio`;
+        return {
+          ...x,
+          wallet,
+          politicas_version: x.politicas_version || POLITICAS_VERSION,
+          billetera: yaCargada
+            ? { ...x.billetera, wallet_address: wallet }
+            : {
+                wallet_address: wallet,
+                saldo_cop: x.billetera.saldo_cop + SALDO_INICIAL_DEMO_COP,
+                movimientos: [
+                  { ts: new Date().toISOString(), tipo: 'carga_inicial', monto_cop: SALDO_INICIAL_DEMO_COP, referencia: ref },
+                  ...x.billetera.movimientos,
+                ],
+              },
+        };
+      }),
+    };
+    commit(next);
+    return { notificacion: `${NOTIF.aprobada} Ya tienes tu billetera de Caja de Barrio con $1.000.000.` };
   },
 
   rechazarPersona(actor, id, motivo) {
     guard(actor, 'persona.rechazar');
     const m = needMotivo(motivo);
     const p = getPersona(id);
-    if (p.estado_registro !== 'revision_manual') throw new Error('Solo se rechazan registros en revisión manual.');
+    if (!['revision_manual', 'verificando'].includes(p.estado_registro)) {
+      throw new Error('Solo se rechazan registros en revisión manual o verificando.');
+    }
     commit(setPersonaEstado(state, actor, p, 'rechazada', m, 'rechazar'));
     return { notificacion: NOTIF.rechazada };
   },
@@ -353,6 +382,74 @@ export const actions = {
   },
 
   /* ---------- Tiendas ---------- */
+
+  // POST /admin/tenderos: alta desde el panel; la tienda queda pendiente hasta que el tendero haga Didit.
+  registrarTendero(actor, datos) {
+    guard(actor, 'tienda.alta');
+    const m = needMotivo(datos?.motivo);
+    const nombre = String(datos?.nombre_tienda || '').trim();
+    const direccion = String(datos?.direccion || '').trim();
+    const nombreTendero = String(datos?.nombre_tendero || '').trim();
+    const whatsapp = String(datos?.whatsapp_tendero || '').replace(/\D/g, '');
+    const lat = Number(datos?.lat);
+    const lon = Number(datos?.lon);
+    if (!nombre || !direccion || !nombreTendero) throw new Error('Completa el nombre de la tienda, la dirección y el nombre del tendero.');
+    if (!['basico', 'comercio', 'aliado'].includes(datos?.nivel)) throw new Error('Nivel inválido.');
+    if (whatsapp.length < 10) throw new Error('Ingresa un WhatsApp válido con indicativo (ej. 573009990001).');
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      throw new Error('Ingresa latitud y longitud válidas.');
+    }
+    if (state.tiendas.some((t) => t.tendero_whatsapp === whatsapp)) {
+      throw new Error('Ese WhatsApp ya es tendero de otra tienda.');
+    }
+    const id = `t-${String(state.tiendas.length + 1).padStart(3, '0')}`;
+    const slug = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24);
+    const wallet = `$ilp.interledger-test.dev/${slug || id}-cajadebarrio`;
+    const tienda = {
+      id,
+      nombre,
+      barrio: '',
+      direccion,
+      lat,
+      lon,
+      wallet,
+      nivel: datos.nivel,
+      estado: 'pendiente_verificacion',
+      suspension_riesgo: false,
+      rut: false,
+      ubicacion_verificada: true,
+      wallet_ok: true,
+      redId: null,
+      tope_retiro_cop: state.config.topes[datos.nivel].retiro,
+      efectivo_publicado_cop: 0,
+      efectivo_reservado_cop: 0,
+      reputacion: 0,
+      entregas_completadas: 0,
+      reclamos: 0,
+      tendero_whatsapp: whatsapp,
+      dueno: { nombre: nombreTendero, cedula: '', verificado: false },
+      didit: { liveness: 'pendiente', score: null, session_id: null, en: null },
+      verifik: { valida: null, nombre_coincide: null, nombre_registrado: null, error: null },
+      motivo_revision: 'Falta la verificación de identidad del tendero (Didit).',
+      billetera: { wallet_address: wallet, saldo_cop: 0, movimientos: [] },
+      creada_en: new Date().toISOString(),
+    };
+    commit(
+      addAudit({ ...state, tiendas: [...state.tiendas, tienda] }, actor, {
+        accion: 'registrar_tendero',
+        entidad_tipo: 'tienda',
+        entidad_id: id,
+        entidad_nombre: nombre,
+        antes: '—',
+        despues: `pendiente_verificacion (${datos.nivel})`,
+        motivo: m,
+      })
+    );
+    return {
+      ...tienda,
+      notificacion: `Hola ${nombreTendero.split(' ')[0]}, registramos tu tienda ${nombre} en Caja de Barrio. Para activarla, escríbeme y verificamos tu identidad.`,
+    };
+  },
 
   suspenderTienda(actor, id, motivo, { porRiesgo = false } = {}) {
     guard(actor, 'tienda.estado');
