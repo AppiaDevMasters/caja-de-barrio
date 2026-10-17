@@ -27,6 +27,13 @@ async def test_verificacion_didit(falso):
     assert falso.ultimo.url.path == "/internal/identidad/verificaciones/did_1"
 
 
+async def test_verificacion_de_persona_nueva_y_de_tendero_del_panel(falso):
+    await m.crear_sesion_facial(motivo="alta", whatsapp="573001112233")
+    assert falso.cuerpo == {"motivo": "alta", "whatsapp": "573001112233"}
+    await m.crear_sesion_facial(motivo="alta_tendero", tienda_id="tie_1")
+    assert falso.cuerpo == {"motivo": "alta_tendero", "tienda_id": "tie_1"}
+
+
 async def test_verificacion_de_solicitud_de_tendero(falso):
     await m.crear_sesion_facial(motivo="alta_tendero", solicitud_id="sol_1")
     assert falso.cuerpo == {"motivo": "alta_tendero", "solicitud_id": "sol_1"}

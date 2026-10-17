@@ -69,19 +69,28 @@ async def registrar_persona(whatsapp: str, tipo: str, numero: str, wallet_addres
 
 
 @mcp.tool()
-async def crear_sesion_facial(persona_id: str = "", motivo: str = "retiro", solicitud_id: str = "") -> dict:
-    """Crea la sesión de prueba de vida y face match en Didit. Es el primer paso de toda operación.
+async def crear_sesion_facial(persona_id: str = "", motivo: str = "retiro", solicitud_id: str = "",
+                              whatsapp: str = "", tienda_id: str = "") -> dict:
+    """Crea la sesión de Didit (documento + prueba de vida). Es el primer paso de toda operación.
+
+    Formas:
+    - Persona nueva (registro): whatsapp y motivo "alta". No se pide la cédula: Didit la lee del documento
+      y el backend la valida con Verifik.
+    - Tendero registrado en el panel: tienda_id y motivo "alta_tendero".
+    - Cliente que va a retirar: persona_id y motivo "retiro".
 
     Args:
-        persona_id: Id de la persona a verificar (clientes).
-        motivo: "alta" (registro), "retiro" (inicio de un retiro) o "alta_tendero" (solicitud de tienda).
-        solicitud_id: Id de la solicitud de tendero, en lugar de persona_id, cuando el motivo es "alta_tendero".
+        persona_id: Id de la persona (clientes ya registrados).
+        motivo: "alta", "retiro" o "alta_tendero".
+        solicitud_id: Id de una solicitud de tendero hecha por WhatsApp (motivo "alta_tendero").
+        whatsapp: WhatsApp de una persona nueva (motivo "alta").
+        tienda_id: Id de la tienda registrada en el panel (motivo "alta_tendero").
     """
     cuerpo = {"motivo": motivo}
-    if solicitud_id:
-        cuerpo["solicitud_id"] = solicitud_id
-    else:
-        cuerpo["persona_id"] = persona_id
+    for clave, valor in (("persona_id", persona_id), ("solicitud_id", solicitud_id), ("whatsapp", whatsapp),
+                         ("tienda_id", tienda_id)):
+        if valor:
+            cuerpo[clave] = valor
     return await llamar("POST", "/identidad/verificaciones", json=cuerpo)
 
 
